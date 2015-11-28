@@ -18,6 +18,5 @@
         "psr-4": { 
             "Gliverich\\Console\\": "" 
         },
-    },
-    "minimum-stability": "dev",
+    }
 }
