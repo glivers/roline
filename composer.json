@@ -2,7 +2,7 @@
     "name": "gliver-mvc/console",
     "description": "This is the entry point into the gliverich console commands",
     "type": "package",
-    "license": "http://opensource.org/licenses/MIT",
+    "license": "MIT",
     "authors": [
         {
             "name": "Geoffrey Okongo",
