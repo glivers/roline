@@ -1,5 +1,5 @@
 {
-    "name": "gliver/console",
+    "name": "gliverich/console",
     "description": "This is the entry point into the gliverich console commands",
     "type": "package",
     "license": "MIT",
@@ -9,5 +9,15 @@
             "email": "geoffreyokongo2@gmail.com"
         }
     ],
-    "require": {}
+    "require" : {
+        "php" : ">=5.4.0",
+        "symfony/console": "^2.7",
+        "gliverich/commands" : "dev-master"
+    },
+    "autoload": {
+        "psr-4": { 
+            "Gliverich\\Console\\": "" 
+        },
+    },
+    "minimum-stability": "dev",
 }
