@@ -9,7 +9,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 class Database extends Command
 {
     protected function configure()
-    {
+    { 
         $this
             ->setName('demo:greet')
             ->setDescription('Greet someone')
