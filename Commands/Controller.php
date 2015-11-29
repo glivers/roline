@@ -72,6 +72,9 @@ class Controller extends Command
         //create an instance of the Finder() class
         $finder = new Finder();
 
+        //create an instance of the FileSystem Class
+        $FileSystem = new Filesystem();
+
         //look for all files in this directory that comply with the rules defined
         $finder->files()->in($controllerDirName)->name('*.php')->contains('extends')->notContains('use Drivers\Controllers\Implementation');
 
@@ -96,9 +99,6 @@ class Controller extends Command
 
             //check if this is a create request
             if ($input->getOption('init')) {
-
-                //create an instance of the FileSystem Class
-                $FileSystem = new Filesystem();
 
                 //check if this class already exists
                 if( isset( $controllers[$name]) ){
@@ -131,17 +131,22 @@ class Controller extends Command
                 if( isset( $controllers[$name]) ){
 
 
-                    //check if the methods to be appended we provided
+                    //check if the methods to be appended were provided
                     if( $methods = $input->getArgument('methods') ){
 
+                        //compose method template code
+                        $methodTemplateCode = "\n\t/**\n\t*Describe what this method does here...\n\t*\n\t*@param null\n\t*@return void\n\t*/\n\tpublic function ";
                         //define variable to contain appended method contents
                         $methodAppendString = '';
 
                         //loop through the methods composing the method content
                         foreach($methods as $methodName ){
 
+                            //compose the method append string
+                            $methodAppendString .= $methodTemplateCode . 'get' . ucfirst(strtolower($methodName)) . "() {\n\t\n\t\n\t}" . 
+                                                    $methodTemplateCode . 'post' . ucfirst(strtolower($methodName) ). "() {\n\t\n\t\n\t} ";
 
-                        }
+                        } 
 
                         //get the result object for this controller from the controllers array
                         $ResultObject = $controllers[$name]['ResultObject'];
@@ -149,8 +154,25 @@ class Controller extends Command
                         //get the contents of this file
                         $FileContents = $ResultObject->getContents();
 
-                        //send this to the output
-                        $output->writeln($FileContents);
+                        //append new file contents
+                        $FileContents .= $methodAppendString; 
+
+                        //enclose this action in a try catch block to be able to handle errors
+                        try {
+
+                            //append contents to controller in style...
+                            $FileSystem->dumpFile( $controllers[$name]['RealPath'], $FileContents);
+
+                            //send this to the output
+                            $output->writeln("Roger! Appending new methods to class successful!");
+
+                        } 
+                        catch (IOExceptionInterface $e) {
+
+                            //send this to the output
+                            $output->writeln("An error occured while appending methods to your controller class!");
+
+                        }
 
                     }
 
