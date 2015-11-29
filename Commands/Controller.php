@@ -135,7 +135,7 @@ class Controller extends Command
                     if( $methods = $input->getArgument('methods') ){
 
                         //compose method template code
-                        $methodTemplateCode = "\n\t/**\n\t*Describe what this method does here...\n\t*\n\t*@param null\n\t*@return void\n\t*/\n\tpublic function ";
+                        $methodTemplateCode = "\n\t/**\n\t*Describe what this method does here...\n\t*\n\t*@param dataType \$varName Description\n\t*@return dataType Description\n\t*/\n\tpublic function ";
                         //define variable to contain appended method contents
                         $methodAppendString = '';
 
@@ -143,8 +143,8 @@ class Controller extends Command
                         foreach($methods as $methodName ){
 
                             //compose the method append string
-                            $methodAppendString .= $methodTemplateCode . 'get' . ucfirst(strtolower($methodName)) . "() {\n\t\n\t\n\t}" . 
-                                                    $methodTemplateCode . 'post' . ucfirst(strtolower($methodName) ). "() {\n\t\n\t\n\t} ";
+                            $methodAppendString .= $methodTemplateCode . 'get' . ucfirst(strtolower($methodName)) . "() {\n\t\n\t\t#...Your code goes in here\n\n\t}\n" . 
+                                                    $methodTemplateCode . 'post' . ucfirst(strtolower($methodName) ). "() {\n\t\n\t\t#...Your code goes in here\n\n\t}\n\n}";
 
                         } 
 
@@ -154,23 +154,43 @@ class Controller extends Command
                         //get the contents of this file
                         $FileContents = $ResultObject->getContents();
 
-                        //append new file contents
-                        $FileContents .= $methodAppendString; 
+                        //file the position of the last closing curly brace in the file contents
+                        $pos = strrpos($FileContents, '}');
 
-                        //enclose this action in a try catch block to be able to handle errors
-                        try {
+                        //check if closing tag was found
+                        if($pos !== false){
 
-                            //append contents to controller in style...
-                            $FileSystem->dumpFile( $controllers[$name]['RealPath'], $FileContents);
+                            //append the new file contents
+                            $FileContents = substr_replace($FileContents, $methodAppendString, $pos, strlen('}'));
 
-                            //send this to the output
-                            $output->writeln("Roger! Appending new methods to class successful!");
+                            //append new file contents
+                            //$FileContents .= $methodAppendString; 
 
-                        } 
-                        catch (IOExceptionInterface $e) {
+                            //enclose this action in a try catch block to be able to handle errors
+                            try {
 
-                            //send this to the output
-                            $output->writeln("An error occured while appending methods to your controller class!");
+                                //append contents to controller in style...
+                                $FileSystem->dumpFile( $controllers[$name]['RealPath'], $FileContents);
+
+                                //send this to the output
+                                $output->writeln("Roger! Appending new methods to class successful!");
+
+                            } 
+                            catch (IOExceptionInterface $e) {
+
+                                //send this to the output
+                                $output->writeln("An error occured while appending methods to your controller class!");
+
+                            }
+
+
+                        }
+
+                        //the last closing brace was not found, seems like this file has syntax errors
+                        else{
+
+                            //write to the output with error message
+                            $output->writeln('Seems like your controller class $name has syntax errors! Fix and try again.');
 
                         }
 
@@ -200,7 +220,7 @@ class Controller extends Command
 
             }
 
-            //if none of the options were specified, list all the methods in this class
+            //if none of the options were specified, list all the methods in this controller class
             else{
 
                 //first, begin by checking if this controller exists
@@ -239,8 +259,6 @@ class Controller extends Command
             
             //send to output stream
             $output->writeln($outputString);
-
-
 
         }
 
