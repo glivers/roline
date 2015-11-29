@@ -11,8 +11,8 @@ class Database extends Command
     protected function configure()
     { 
         $this
-            ->setName('demo:greet')
-            ->setDescription('Greet someone')
+            ->setName('database')
+            ->setDescription('Greet Database')
             ->addArgument(
                 'name',
                 InputArgument::OPTIONAL,
@@ -31,9 +31,9 @@ class Database extends Command
     {
         $name = $input->getArgument('name');
         if ($name) {
-            $text = 'Hello '.$name;
+            $text = 'Hello Database '.$name;
         } else {
-            $text = 'Hello';
+            $text = 'Hello Database';
         }
 
         if ($input->getOption('yell')) {
