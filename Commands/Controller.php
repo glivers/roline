@@ -21,6 +21,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Filesystem\Exception\IOExceptionInterface;
 use Symfony\Component\Finder\Finder;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 class Controller extends Command
 {
@@ -40,7 +41,7 @@ class Controller extends Command
                     'What methods would you like to create  for this controller class (separate multiple method names with a space)?'
                 )
             ->addOption(
-               'init',
+               'create',
                null,
                InputOption::VALUE_NONE,
                'Specify this option when you are creating a controller class for the first time.'
@@ -49,13 +50,13 @@ class Controller extends Command
                'append',
                null,
                InputOption::VALUE_NONE,
-               'Specify this option when you would like to modify a controller class that already exists.'
+               'Specify this option when you would like to add methods to a controller class that already exists.'
             )
             ->addOption(
                'complete',
                null,
                InputOption::VALUE_NONE,
-               'Specify this option if you want to create a controller class together with associated model and views all in once command.'
+               'Specify this option if you want to create a controller class together with associated model, table and views all in once command.'
             )
         ;
     }
@@ -82,7 +83,7 @@ class Controller extends Command
         foreach ($finder as $file) {
 
             //add controller name to the controller array
-            $controllers[substr($file->getRelativePathname(), 0, -14)] = array(
+            $controllers[str_replace('/', '\\', substr($file->getRelativePathname(), 0, -14))] = array(
 
                 'RealPath' => $file->getRealpath(),
                 'ResultObject' => $file
@@ -91,34 +92,238 @@ class Controller extends Command
 
         }
 
-
-
-
         //check if a controller name was specified
         if( $name = $input->getArgument('name') ){
 
             //check if this is a create request
-            if ($input->getOption('init')) {
+            if ($input->getOption('create')) {
 
-                //check if this class already exists
-                if( isset( $controllers[$name]) ){
+                if(isset( $controllers[$name])){
 
-                    //composer to send to output
-                    $output->writeln('A Controller with this name already exists! Do you want to overwrite it?');
+                    $helper = $this->getHelper('question');
+                    $question = new ConfirmationQuestion("\n\tA controller with this name already exists! Do you want to overwrite it? (y/n)", false);
+
+                    if (!$helper->ask($input, $output, $question)) {
+
+                        //send this to the output
+                        $output->writeln("\n\tCommand aborted---+++\n\tExit().");
+                    }
+
+                    else{
+
+                        //check if the methods to be appended were provided
+                        if( $methods = $input->getArgument('methods') ){
+
+                            //get full paht
+                            $fullPath = $controllerDirName.'/'.str_replace('\\', '/', $name).'Controller.php';
+                            //check if this is a subnamespace
+                            $strpos = (strpos($name, '\\')) ? '\\'.substr($name, 0, strrpos($name, '\\')) : '';
+                            $className = (strpos($name, '\\')) ? substr($name, strrpos($name, '\\') + 1) : $name;
+                            //get model template content
+                            $templateHead = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerHeader.php');
+                            $settings = Registry::getConfig();
+                            //prefile with data
+                            $headerString = sprintf(
+                                $templateHead, 
+                                $strpos,
+                                $settings['author'], 
+                                $settings['copyright'], 
+                                $name,
+                                $settings['license'],
+                                $settings['version'],
+                                $className
+                                );
+
+                            //compose method template code
+                            $template = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerMain.php');
+                            //define variable to contain appended method contents
+                            $methodAppendArray = array();
+
+                            //loop through the methods composing the method content
+                            foreach($methods as $methodName ){
+
+                                //compose the method append string
+                                $methodAppendArray[] = sprintf($template,ucfirst(strtolower($methodName)), ucfirst(strtolower($methodName)));
+
+                            } 
+
+                            //append the new file contents
+                            $contentString = $headerString.join(' ', $methodAppendArray).'}';
+
+
+                            //check if this is dir
+                            if($FileSystem->exists($controllerDirName.'/'.$strpos)){
+                                $FileSystem->dumpFile($fullPath, $contentString);
+                            }
+                            else{
+                                $FileSystem->mkdir($controllerDirName.'/'.$strpos); 
+                                $FileSystem->dumpFile($fullPath, $contentString);
+                            }
+
+                            //send this to the output
+                            $output->writeln("\n\tCreating controller $name...\n\tAppending new methods to contoller class...\n\tSuccess---+++\n\tExit().");
+
+                        }
+
+                        else{
+
+                            //get full paht
+                            $fullPath = $controllerDirName.'/'.str_replace('\\', '/', $name).'Controller.php';
+                            //check if this is a subnamespace
+                            $strpos = (strpos($name, '\\')) ? '\\'.substr($name, 0, strrpos($name, '\\')) : '';
+                            $className = (strpos($name, '\\')) ? substr($name, strrpos($name, '\\') + 1) : $name;
+                            //get model template content
+                            $templateHead = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerHeader.php');
+                            $settings = Registry::getConfig();
+                            //prefile with data
+                            $headerString = sprintf(
+                                $templateHead, 
+                                $strpos,
+                                $settings['author'], 
+                                $settings['copyright'], 
+                                $name,
+                                $settings['license'],
+                                $settings['version'],
+                                $className
+                                );
+
+                            //compose method template code
+                            $template = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerMain.php');
+
+                            //loop through the methods composing the method content
+                             $methodName = 'Index';
+
+                            //compose the method append string
+                            $methodAppendArray = sprintf($template,ucfirst(strtolower($methodName)), ucfirst(strtolower($methodName)));
+
+
+                            //append the new file contents
+                            $contentString = $headerString.$methodAppendArray.'}';
+
+
+                            //check if this is dir
+                            if($FileSystem->exists($controllerDirName.'/'.$strpos)){
+                                $FileSystem->dumpFile($fullPath, $contentString);
+                            }
+                            else{
+                                $FileSystem->mkdir($controllerDirName.'/'.$strpos); 
+                                $FileSystem->dumpFile($fullPath, $contentString);
+                            }
+
+                            //send this to the output
+                            $output->writeln("\n\tCreating controller $name...\n\tAppending new methods to contoller class...\n\tSuccess---+++\n\tExit().");
+
+                        }
+
+                    }
 
                 }
-
-                //check if a file with a similar name already exists
-                elseif(   $FileSystem->exists( $controllerDirName . "/" . $name . "Controller.php") ){
-
-                    //composer to send to output
-                    $output->writeln('A File with similar name already exists! Do you want to overwrite it?');
-
-                }
-
                 //this is a completely new controller, go ahead and get parameters and create controller class
                 else{
 
+                    //check if the methods to be appended were provided
+                    if( $methods = $input->getArgument('methods') ){
+
+                        //get full paht
+                        $fullPath = $controllerDirName.'/'.str_replace('\\', '/', $name).'Controller.php';
+                        //check if this is a subnamespace
+                        $strpos = (strpos($name, '\\')) ? '\\'.substr($name, 0, strrpos($name, '\\')) : '';
+                        $className = (strpos($name, '\\')) ? substr($name, strrpos($name, '\\') + 1) : $name;
+                        //get model template content
+                        $templateHead = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerHeader.php');
+                        $settings = Registry::getConfig();
+                        //prefile with data
+                        $headerString = sprintf(
+                            $templateHead, 
+                            $strpos,
+                            $settings['author'], 
+                            $settings['copyright'], 
+                            $name,
+                            $settings['license'],
+                            $settings['version'],
+                            $className
+                            );
+
+                        //compose method template code
+                        $template = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerMain.php');
+                        //define variable to contain appended method contents
+                        $methodAppendArray = array();
+
+                        //loop through the methods composing the method content
+                        foreach($methods as $methodName ){
+
+                            //compose the method append string
+                            $methodAppendArray[] = sprintf($template,ucfirst(strtolower($methodName)), ucfirst(strtolower($methodName)));
+
+                        } 
+
+                        //append the new file contents
+                        $contentString = $headerString.join(' ', $methodAppendArray).'}';
+
+
+                        //check if this is dir
+                        if($FileSystem->exists($controllerDirName.'/'.$strpos)){
+                            $FileSystem->dumpFile($fullPath, $contentString);
+                        }
+                        else{
+                            $FileSystem->mkdir($controllerDirName.'/'.$strpos); 
+                            $FileSystem->dumpFile($fullPath, $contentString);
+                        }
+
+                        //send this to the output
+                        $output->writeln("\n\Creating controller $name...\n\tAppending new methods to contoller class...\n\tSuccess---+++\n\tExit().");
+
+                    }
+
+                    else{
+
+                        //get full paht
+                        $fullPath = $controllerDirName.'/'.str_replace('\\', '/', $name).'Controller.php';
+                        //check if this is a subnamespace
+                        $strpos = (strpos($name, '\\')) ? '\\'.substr($name, 0, strrpos($name, '\\')) : '';
+                        $className = (strpos($name, '\\')) ? substr($name, strrpos($name, '\\') + 1) : $name;
+                        //get model template content
+                        $templateHead = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerHeader.php');
+                        $settings = Registry::getConfig();
+                        //prefile with data
+                        $headerString = sprintf(
+                            $templateHead, 
+                            $strpos,
+                            $settings['author'], 
+                            $settings['copyright'], 
+                            $name,
+                            $settings['license'],
+                            $settings['version'],
+                            $className
+                            );
+
+                        //compose method template code
+                        $template = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerMain.php');
+
+                        //loop through the methods composing the method content
+                         $methodName = 'Index';
+
+                        //compose the method append string
+                        $methodAppendArray = sprintf($template,ucfirst(strtolower($methodName)), ucfirst(strtolower($methodName)));
+
+
+                        //append the new file contents
+                        $contentString = $headerString.$methodAppendArray.'}';
+
+
+                        //check if this is dir
+                        if($FileSystem->exists($controllerDirName.'/'.$strpos)){
+                            $FileSystem->dumpFile($fullPath, $contentString);
+                        }
+                        else{
+                            $FileSystem->mkdir($controllerDirName.'/'.$strpos); 
+                            $FileSystem->dumpFile($fullPath, $contentString);
+                        }
+
+                        //send this to the output
+                        $output->writeln("\n\tCreating controller $name...\n\tAppending new methods to contoller class...\n\tSuccess---+++\n\tExit().");
+
+                    }
 
                 }
 
@@ -130,21 +335,20 @@ class Controller extends Command
                 //first, begin by checking if this controller exists
                 if( isset( $controllers[$name]) ){
 
-
                     //check if the methods to be appended were provided
                     if( $methods = $input->getArgument('methods') ){
 
                         //compose method template code
-                        $methodTemplateCode = "\n\t/**\n\t*Describe what this method does here...\n\t*\n\t*@param dataType \$varName Description\n\t*@return dataType Description\n\t*/\n\tpublic function ";
+                        $template = file_get_contents(dirname(__FILE__).'/Templates/Controllers/ControllerMain.php');
+
                         //define variable to contain appended method contents
-                        $methodAppendString = '';
+                        $methodAppendArray = array();
 
                         //loop through the methods composing the method content
                         foreach($methods as $methodName ){
 
                             //compose the method append string
-                            $methodAppendString .= $methodTemplateCode . 'get' . ucfirst(strtolower($methodName)) . "() {\n\t\n\t\t#...Your code goes in here\n\n\t}\n" . 
-                                                    $methodTemplateCode . 'post' . ucfirst(strtolower($methodName) ). "() {\n\t\n\t\t#...Your code goes in here\n\n\t}\n\n}";
+                            $methodAppendArray[] = sprintf($template,ucfirst(strtolower($methodName)), ucfirst(strtolower($methodName)));
 
                         } 
 
@@ -161,10 +365,7 @@ class Controller extends Command
                         if($pos !== false){
 
                             //append the new file contents
-                            $FileContents = substr_replace($FileContents, $methodAppendString, $pos, strlen('}'));
-
-                            //append new file contents
-                            //$FileContents .= $methodAppendString; 
+                            $FileContents = substr_replace($FileContents, join(' ', $methodAppendArray), $pos, strlen('}'))."\n}";
 
                             //enclose this action in a try catch block to be able to handle errors
                             try {
@@ -173,13 +374,13 @@ class Controller extends Command
                                 $FileSystem->dumpFile( $controllers[$name]['RealPath'], $FileContents);
 
                                 //send this to the output
-                                $output->writeln("Roger! Appending new methods to class successful!");
+                                $output->writeln("\n\tAppending methods to $name...\n\tAppending new methods to class successful---+++\n\tExit().");
 
                             } 
                             catch (IOExceptionInterface $e) {
 
                                 //send this to the output
-                                $output->writeln("An error occured while appending methods to your controller class!");
+                                $output->writeln("\n\tAn error occured while appending methods to your controller class---+++\n\tExit().");
 
                             }
 
@@ -190,7 +391,7 @@ class Controller extends Command
                         else{
 
                             //write to the output with error message
-                            $output->writeln('Seems like your controller class $name has syntax errors! Fix and try again.');
+                            $output->writeln("\n\tSeems like your controller class $name has syntax errors---+++!\n\tFix and try again...\n\tExit().");
 
                         }
 
@@ -200,7 +401,7 @@ class Controller extends Command
                     else{
 
                         //send out put with missign methods message to the console
-                        $output->writeln("You did not provide the methods to append to this $name Controller class!");
+                        $output->writeln("\n\rNo methods to append to Controller $name ---+++\n\tExit().");
 
                     }
 
@@ -210,11 +411,8 @@ class Controller extends Command
                 //this controller is not defined yet
                 else{
 
-                    //compose output string
-                    $outputString = "You are trying to modify a controller named '$name' which is undefined!";
-
                     //send to output stream
-                    $output->writeln($outputString);
+                    $output->writeln("\n\tController named '$name' is undefined---+++\n\tExit().");
 
                 }
 
@@ -226,7 +424,11 @@ class Controller extends Command
                 //first, begin by checking if this controller exists
                 if( isset( $controllers[$name]) ){
 
+                    //compose output string
+                    $outputString = "\n\tController named '$name'   is already defined---+++\n\tExit().";
 
+                    //send to output stream
+                    $output->writeln($outputString);
 
                 }
 
@@ -234,7 +436,7 @@ class Controller extends Command
                 else{
 
                     //compose output string
-                    $outputString = "Controller '$name'   is undefined!";
+                    $outputString = "\n\tController named '$name'   is undefined---+++\n\tExit().";
 
                     //send to output stream
                     $output->writeln($outputString);
@@ -255,7 +457,7 @@ class Controller extends Command
             $controllerNamesString = join("\n", $controllerNames);
 
             //output string
-            $outputString = "Controller Class(es) [" . count($controllers) . "] \n" . $controllerNamesString;
+            $outputString = "\nController Class(es) [" . count($controllers) . "] \n\t" . $controllerNamesString;
             
             //send to output stream
             $output->writeln($outputString);
