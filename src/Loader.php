@@ -13,7 +13,7 @@
  */
 
 use Gliverich\Console\Commands\Controller;
-use Gliverich\Console\Commands\Database;
+use Gliverich\Console\Commands\Model;
 use Symfony\Component\Console\Application;
 
 class Loader {
@@ -23,7 +23,7 @@ class Loader {
 
 		$console = new Application();
 		$console->add(new Controller());
-		$console->add(new Database());
+		$console->add(new Model());
 		$console->run();
 
 	}
