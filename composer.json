@@ -1,12 +1,12 @@
 {
-    "name": "gliverich/console",
+    "name": "gliver/console",
     "description": "This is the entry point into the gliverich console commands",
     "type": "package",
     "license": "MIT",
     "authors": [
         {
-            "name": "Geoffrey Okongo",
-            "email": "geoffreyokongo2@gmail.com"
+            "name": "Geoffrey Bans",
+            "email": "geoffreybans@gmail.com"
         }
     ],
     "require" : {
