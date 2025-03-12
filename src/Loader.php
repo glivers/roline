@@ -1,19 +1,19 @@
-<?php namespace Gliverich\Console;
+<?php namespace Roline\Console;
 
 /**
  *This class loads the classes that handle gliverich command line tools
  *
- *@author Geoffrey Oliver <geoffrey.oliver2@gmail.com>
- *@copyright 2015 - 2020 Geoffrey Oliver
- *@category Gliverich
- *@package Gliverich\Console\Loader
- *@link https://github.com/gliver-mvc/console
+ *@author Geoffrey Okongo <code@rachie.dev>
+ *@copyright 2015 - 2030 Geoffrey Okongo
+ *@category Roline
+ *@package Roline\Console\Loader
+ *@link https://github.com/glivers/roline
  *@license http://opensource.org/licenses/MIT MIT License
  *@version 1.0.1
  */
 
-use Gliverich\Console\Commands\Controller;
-use Gliverich\Console\Commands\Model;
+use Roline\Console\Commands\Controller;
+use Roline\Console\Commands\Model;
 use Symfony\Component\Console\Application;
 
 class Loader {

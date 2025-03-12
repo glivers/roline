@@ -1,6 +1,6 @@
-<?php namespace Gliverich\Console\Commands;
+<?php namespace Roline\Console\Commands;
 
-use Drivers\Registry;
+use Rackage\Drivers\Registry;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;

@@ -1,12 +1,12 @@
 {
-    "name": "gliver/console",
-    "description": "This is the entry point into the gliverich console commands",
+    "name": "glivers/roline",
+    "description": "This is the entry point into the Rachie console commands",
     "type": "package",
     "license": "MIT",
     "authors": [
         {
-            "name": "Geoffrey Bans",
-            "email": "geoffreybans@gmail.com"
+            "name": "Geoffrey Okongo",
+            "email": "code@rachie.dev"
         }
     ],
     "require" : {
@@ -17,7 +17,7 @@
     },
     "autoload": {
         "psr-4": { 
-            "Gliverich\\Console\\": "" 
+            "Roline\\Console\\": "" 
         }
     }
 }

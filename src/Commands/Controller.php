@@ -1,18 +1,18 @@
-<?php namespace Gliverich\Console\Commands;
+<?php namespace Roline\Console\Commands;
 
 /**
  *This class defines command options that are available for controller command
  *
- *@author Geoffrey Oliver <geoffrey.oliver2@gmail.com>
- *@copyright 2015 - 2020 Geoffrey Oliver
- *@category Gliverich
- *@package Gliverich\Console\Command\Controller
- *@link https://github.com/gliver-mvc/console
+ *@author Geoffrey Okongo <code@rachie.dev>
+ *@copyright 2015 - 2030 Geoffrey Okongo
+ *@category Roline
+ *@package Roline\Console\Command\Controller
+ *@link https://github.com/glivers/roline
  *@license http://opensource.org/licenses/MIT MIT License
  *@version 1.0.1
  */
 
-use Drivers\Registry;
+use Rackage\Drivers\Registry;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
