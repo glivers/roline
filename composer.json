@@ -10,14 +10,11 @@
         }
     ],
     "require" : {
-        "php" : ">=5.4.0",
-        "symfony/console": "^2.7",
-        "symfony/filesystem" : "^2.7",
-        "symfony/finder" : "^2.7"
+        "php" : ">=7.1.0"
     },
     "autoload": {
         "psr-4": { 
-            "Roline\\Console\\": "" 
+            "Roline\\": "src" 
         }
     }
 }
