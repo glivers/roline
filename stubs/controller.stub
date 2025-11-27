@@ -1,0 +1,89 @@
+<?php namespace Controllers;
+
+use Rackage\Controller;
+use Rackage\View;
+
+/**
+ * {{ControllerName}} Controller
+ *
+ * Handles requests for {{ControllerName}} resources.
+ */
+class {{ControllerName}}Controller extends Controller
+{
+    /**
+     * Display a listing of resources
+     *
+     * @return void
+     */
+    public function getIndex()
+    {
+        View::render('{{ControllerName|lowercase}}.index');
+    }
+
+    /**
+     * Show the form for creating a new resource
+     *
+     * @return void
+     */
+    public function getCreate()
+    {
+        View::render('{{ControllerName|lowercase}}.create');
+    }
+
+    /**
+     * Store a newly created resource
+     *
+     * @return void
+     */
+    public function postStore()
+    {
+        // Handle form submission
+        // Validate input, save to database, redirect
+    }
+
+    /**
+     * Display the specified resource
+     *
+     * @param mixed $id Resource identifier
+     * @return void
+     */
+    public function getShow($id)
+    {
+        View::render('{{ControllerName|lowercase}}.show', ['id' => $id]);
+    }
+
+    /**
+     * Show the form for editing the specified resource
+     *
+     * @param mixed $id Resource identifier
+     * @return void
+     */
+    public function getEdit($id)
+    {
+        View::render('{{ControllerName|lowercase}}.edit', ['id' => $id]);
+    }
+
+    /**
+     * Update the specified resource
+     *
+     * @param mixed $id Resource identifier
+     * @return void
+     */
+    public function putUpdate($id)
+    {
+        // Handle update submission
+        // Validate input, update database, redirect
+    }
+
+    /**
+     * Remove the specified resource
+     *
+     * @param mixed $id Resource identifier
+     * @return void
+     */
+    public function deleteDestroy($id)
+    {
+        // Handle deletion
+        // Delete from database, redirect
+    }
+}
