@@ -106,6 +106,16 @@ class Roline
         $commandName = $argv[1] ?? 'list';
         $arguments = array_slice($argv, 2);
 
+        // Handle global flags (--version, -v, --help, -h) before command lookup
+        if (in_array($commandName, ['--version', '-v']))
+        {
+            $commandName = 'version';
+        }
+        elseif (in_array($commandName, ['--help', '-h']))
+        {
+            $commandName = 'help';
+        }
+
         // Validate that the requested command exists in our registry
         if (!isset($this->commands[$commandName]))
         {
