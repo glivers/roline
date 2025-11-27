@@ -18,16 +18,17 @@ use Rackage\Registry;
 function up()
 {
     $db = Registry::get('database');
+    $query = $db->query();
 
-    $db->beginTransaction();
+    $query->transaction();
 
     try {
 {{UpSQL}}
 
-        $db->commit();
+        $query->commit();
 
     } catch (Exception $e) {
-        $db->rollback();
+        $query->rollback();
         throw $e;
     }
 }
@@ -38,16 +39,17 @@ function up()
 function down()
 {
     $db = Registry::get('database');
+    $query = $db->query();
 
-    $db->beginTransaction();
+    $query->transaction();
 
     try {
 {{DownSQL}}
 
-        $db->commit();
+        $query->commit();
 
     } catch (Exception $e) {
-        $db->rollback();
+        $query->rollback();
         throw $e;
     }
 }
