@@ -426,4 +426,54 @@ class MySQLSchema
         $sql = "DROP TABLE IF EXISTS `{$tableName}`;";
         return $this->connection->execute($sql);
     }
+
+    /**
+     * Get table columns (for TableSchema command)
+     *
+     * @param string $tableName Table name
+     * @return array Array of column information
+     */
+    public function getTableColumns($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SHOW COLUMNS FROM `{$tableName}`";
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return [];
+        }
+
+        $columns = [];
+        while ($row = $result->fetch_assoc()) {
+            $columns[] = $row;
+        }
+
+        return $columns;
+    }
+
+    /**
+     * Get table indexes (for TableSchema command)
+     *
+     * @param string $tableName Table name
+     * @return array Array of index information
+     */
+    public function getTableIndexes($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SHOW INDEX FROM `{$tableName}`";
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return [];
+        }
+
+        $indexes = [];
+        while ($row = $result->fetch_assoc()) {
+            $indexes[] = $row;
+        }
+
+        return $indexes;
+    }
 }
