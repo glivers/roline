@@ -476,4 +476,42 @@ class MySQLSchema
 
         return $indexes;
     }
+
+    /**
+     * Get the number of rows in a table
+     *
+     * @param string $tableName Name of table to count rows in
+     * @return int Number of rows in table
+     */
+    public function getRowCount($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT COUNT(*) as count FROM `{$tableName}`";
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return 0;
+        }
+
+        $row = $result->fetch_assoc();
+        return (int) $row['count'];
+    }
+
+    /**
+     * Empty a table by deleting all rows
+     *
+     * Preserves table structure and indexes, but removes all data.
+     * Uses DELETE instead of TRUNCATE to respect foreign keys and preserve auto-increment counter.
+     *
+     * @param string $tableName Name of table to empty
+     * @return void
+     */
+    public function emptyTable($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "DELETE FROM `{$tableName}`";
+        $this->connection->execute($sql);
+    }
 }
