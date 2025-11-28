@@ -514,4 +514,47 @@ class MySQLSchema
         $sql = "DELETE FROM `{$tableName}`";
         $this->connection->execute($sql);
     }
+
+    /**
+     * Display table schema in formatted output
+     *
+     * Shows column names, types, and constraints.
+     *
+     * @param string $tableName Name of table to display
+     * @return void
+     */
+    public function displayTableSchema($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SHOW FULL COLUMNS FROM `{$tableName}`";
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return;
+        }
+
+        echo "Columns:\n";
+        while ($row = $result->fetch_assoc()) {
+            $col = $row['Field'];
+            $type = $row['Type'];
+            $null = $row['Null'] === 'YES' ? 'NULL' : 'NOT NULL';
+            $key = $row['Key'] ? " ({$row['Key']})" : '';
+            $extra = $row['Extra'] ? " {$row['Extra']}" : '';
+
+            echo "  {$col}: {$type} {$null}{$key}{$extra}\n";
+        }
+    }
+
+    /**
+     * Execute raw SQL query
+     *
+     * @param string $sql SQL query to execute
+     * @return mixed Query result
+     */
+    public function rawQuery($sql)
+    {
+        $this->ensureConnection();
+        return $this->connection->execute($sql);
+    }
 }
