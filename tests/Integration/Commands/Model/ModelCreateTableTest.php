@@ -263,7 +263,7 @@ class ModelCreateTableTest extends RolineTest
     public function testRecreateExistingTable()
     {
         $modelName = 'RecreateTest';
-        $tableName = 'recreatetests';  // pluralize() adds 's', doesn't convert to snake_case
+        $tableName = 'recreate_tests';  // snake_case + pluralized
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 
         $this->trackFile($modelPath);

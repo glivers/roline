@@ -84,7 +84,7 @@ class ModelUpdateTableTest extends RolineTest
     public function testAddNewColumnToTable()
     {
         $modelName = 'UpdateTest';
-        $tableName = 'updatetests';
+        $tableName = 'update_tests';  // snake_case + pluralized
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 
         $this->trackFile($modelPath);
@@ -238,7 +238,7 @@ class ModelUpdateTableTest extends RolineTest
     public function testUpdateTableWithNoChanges()
     {
         $modelName = 'NoChange';
-        $tableName = 'nochanges';
+        $tableName = 'no_changes';  // snake_case + pluralized
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 
         $this->trackFile($modelPath);

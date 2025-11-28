@@ -137,7 +137,7 @@ class ModelRenameTableTest extends RolineTest
     public function testCancelTableRename()
     {
         $modelName = 'KeepName';
-        $tableName = 'keepnames';
+        $tableName = 'keep_names';  // snake_case + pluralized
         $newTableName = 'should_not_exist';
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 

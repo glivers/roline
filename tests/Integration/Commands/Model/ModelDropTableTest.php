@@ -79,7 +79,7 @@ class ModelDropTableTest extends RolineTest
     public function testDeleteTableWithConfirmation()
     {
         $modelName = 'DeleteMe';
-        $tableName = 'deletemes';
+        $tableName = 'delete_mes';  // snake_case + pluralized
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 
         $this->trackFile($modelPath);
@@ -127,7 +127,7 @@ class ModelDropTableTest extends RolineTest
     public function testCancelTableDeletionFirstPrompt()
     {
         $modelName = 'KeepMe';
-        $tableName = 'keepmes';
+        $tableName = 'keep_mes';  // snake_case + pluralized
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 
         $this->trackFile($modelPath);
@@ -176,7 +176,7 @@ class ModelDropTableTest extends RolineTest
     public function testCancelTableDeletionSecondPrompt()
     {
         $modelName = 'StillKeep';
-        $tableName = 'stillkeeps';
+        $tableName = 'still_keeps';  // snake_case + pluralized
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 
         $this->trackFile($modelPath);
@@ -275,7 +275,7 @@ class ModelDropTableTest extends RolineTest
     public function testShowsDangerZoneWarning()
     {
         $modelName = 'WarnTest';
-        $tableName = 'warntests';
+        $tableName = 'warn_tests';  // snake_case + pluralized
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
 
         $this->trackFile($modelPath);
