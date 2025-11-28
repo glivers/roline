@@ -1,22 +1,43 @@
 <?php namespace Tests\Integration\Commands;
 
+/**
+ * Integration Tests for model:table-schema command
+ *
+ * Tests the complete flow of displaying database table schema via model references
+ * using the Roline CLI. These integration tests execute the actual model:table-schema
+ * command and verify that table structure is correctly displayed with column details.
+ *
+ * What Gets Tested:
+ *   - Displaying schema for existing table
+ *   - Schema output includes column information
+ *   - Schema output includes table name
+ *   - Validation: Cannot display schema for non-existent table
+ *   - Validation: Cannot display schema for non-existent model
+ *   - Required model name argument validation
+ *
+ * Test Strategy:
+ *   - Tests create models and tables via model:create and model:create-table
+ *   - Model files tracked via trackFile(), tables via trackTable()
+ *   - Commands executed via runCommand() which captures output
+ *   - Output assertions verify schema information display
+ *   - Tests verify column names and types appear in output
+ *
+ * File and Table Cleanup:
+ *   All created model files and tables are automatically removed after each test
+ *   via tearDown() inherited from RolineTest base class. No manual cleanup required.
+ *
+ * @author Geoffrey Okongo <code@rachie.dev>
+ * @copyright 2015 - 2050 Geoffrey Okongo
+ * @category Roline
+ * @package Tests\Integration\Commands
+ * @link https://github.com/glivers/roline
+ * @license http://opensource.org/licenses/MIT MIT License
+ * @version 1.0.0
+ * @see RolineTest For base test functionality and cleanup mechanisms
+ */
+
 use Tests\RolineTest;
 
-/**
- * ModelTableSchema Command Integration Tests
- *
- * Tests the model:table-schema command which displays the database table
- * structure for a given model.
- *
- * Test Coverage:
- *   - Displaying schema for existing table
- *   - Attempting to view schema of non-existent table
- *   - Attempting to view schema for non-existent model
- *   - Validating schema output includes column information
- *
- * @category Tests
- * @package  Tests\Integration\Commands
- */
 class ModelTableSchemaTest extends RolineTest
 {
     /**
@@ -24,6 +45,12 @@ class ModelTableSchemaTest extends RolineTest
      *
      * Verifies that model:table-schema can display the structure of an
      * existing database table.
+     *
+     * What Gets Verified:
+     *   - Model and table are created successfully
+     *   - Schema command executes without errors
+     *   - Output contains column information
+     *   - Standard columns (id, date_created, date_modified) appear
      *
      * @return void
      */
@@ -64,6 +91,12 @@ class ModelTableSchemaTest extends RolineTest
      *
      * Verifies that model:table-schema fails gracefully when table doesn't exist.
      *
+     * What Gets Verified:
+     *   - Model exists but table doesn't
+     *   - Command detects non-existent table
+     *   - Error message is displayed
+     *   - No schema information is shown
+     *
      * @return void
      */
     public function testDisplaySchemaForNonExistentTable()
@@ -94,6 +127,11 @@ class ModelTableSchemaTest extends RolineTest
      *
      * Verifies that model:table-schema fails gracefully when model doesn't exist.
      *
+     * What Gets Verified:
+     *   - Command detects non-existent model
+     *   - Error message is displayed
+     *   - No schema operations attempted
+     *
      * @return void
      */
     public function testDisplaySchemaForNonExistentModel()
@@ -112,6 +150,14 @@ class ModelTableSchemaTest extends RolineTest
     /**
      * Test model:table-schema requires model name argument
      *
+     * Verifies that model:table-schema validates required arguments and displays
+     * appropriate error message when model name is missing.
+     *
+     * What Gets Verified:
+     *   - Missing argument is detected
+     *   - Error or usage message is displayed
+     *   - Command exits without prompting
+     *
      * @return void
      */
     public function testRequiresModelNameArgument()
@@ -129,6 +175,11 @@ class ModelTableSchemaTest extends RolineTest
      * Test schema output includes table name
      *
      * Verifies that the schema output clearly shows which table is being displayed.
+     *
+     * What Gets Verified:
+     *   - Schema is displayed successfully
+     *   - Table name appears in output
+     *   - Output provides clear context
      *
      * @return void
      */
