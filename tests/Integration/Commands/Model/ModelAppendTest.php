@@ -1,24 +1,46 @@
 <?php namespace Tests\Integration\Commands;
 
-use Tests\RolineTest;
-
 /**
- * ModelAppend Command Integration Tests
+ * Integration Tests for model:append command
  *
- * Tests the model:append command which adds properties to existing model files
- * using interactive prompts for property names and types.
+ * Tests the complete flow of adding properties to existing model files via the
+ * Roline CLI using interactive prompts. These integration tests execute the actual
+ * model:append command and verify that properties are correctly added with proper
+ * @column annotations and inserted in the correct location.
  *
- * Test Coverage:
+ * What Gets Tested:
  *   - Adding single property to existing model
  *   - Adding multiple properties in one operation
- *   - Attempting to append to non-existent model
- *   - Validating generated @column annotations
- *   - Verifying properties are inserted before MODEL METHODS section
- *   - Testing with various property types (varchar, int, datetime, text)
+ *   - Validation: Cannot append to non-existent model
+ *   - Generated @column annotations with proper types
+ *   - Properties inserted before MODEL METHODS section
+ *   - Default type handling (varchar(255))
+ *   - Required model name argument validation
  *
- * @category Tests
- * @package  Tests\Integration\Commands
+ * Test Strategy:
+ *   - Tests use model:create to set up model files
+ *   - Model files are tracked via trackFile() for automatic cleanup
+ *   - Commands are executed via runCommand() with interactive inputs
+ *   - File content assertions verify property insertion and annotations
+ *   - Output assertions verify success messages
+ *   - Position verification ensures proper code insertion location
+ *
+ * File Cleanup:
+ *   All created model files are automatically deleted after each test via
+ *   tearDown() inherited from RolineTest base class. No manual cleanup required.
+ *
+ * @author Geoffrey Okongo <code@rachie.dev>
+ * @copyright 2015 - 2050 Geoffrey Okongo
+ * @category Roline
+ * @package Tests\Integration\Commands
+ * @link https://github.com/glivers/roline
+ * @license http://opensource.org/licenses/MIT MIT License
+ * @version 1.0.0
+ * @see RolineTest For base test functionality and cleanup mechanisms
  */
+
+use Tests\RolineTest;
+
 class ModelAppendTest extends RolineTest
 {
     /**
@@ -26,6 +48,12 @@ class ModelAppendTest extends RolineTest
      *
      * Verifies that model:append can add a new property with @column annotation
      * to an existing model file and that the property is properly formatted.
+     *
+     * What Gets Verified:
+     *   - Property is added to model file
+     *   - @column annotation is present
+     *   - Type annotation matches specified type
+     *   - Success message is displayed
      *
      * @return void
      */
@@ -71,6 +99,12 @@ class ModelAppendTest extends RolineTest
      *
      * Verifies that model:append can add multiple properties in a single
      * command execution with different types.
+     *
+     * What Gets Verified:
+     *   - All properties are added to model file
+     *   - Each property has correct type annotation
+     *   - Output confirms number of properties added
+     *   - Multiple types are handled correctly
      *
      * @return void
      */
@@ -122,6 +156,11 @@ class ModelAppendTest extends RolineTest
      *
      * Verifies that model:append fails gracefully when target model doesn't exist.
      *
+     * What Gets Verified:
+     *   - Command detects non-existent model
+     *   - Error message is displayed
+     *   - No properties are added
+     *
      * @return void
      */
     public function testAppendToNonExistentModel()
@@ -143,6 +182,11 @@ class ModelAppendTest extends RolineTest
      * Test appending properties with default type
      *
      * Verifies that model:append uses varchar(255) as default when no type provided.
+     *
+     * What Gets Verified:
+     *   - Empty type input uses default varchar(255)
+     *   - Property is added with default type
+     *   - Default type annotation is correct
      *
      * @return void
      */
@@ -177,6 +221,14 @@ class ModelAppendTest extends RolineTest
     /**
      * Test model:append requires model name argument
      *
+     * Verifies that model:append validates required arguments and displays
+     * appropriate error message when model name is missing.
+     *
+     * What Gets Verified:
+     *   - Missing argument is detected
+     *   - Error or usage message is displayed
+     *   - Command exits without prompting
+     *
      * @return void
      */
     public function testRequiresModelNameArgument()
@@ -196,6 +248,12 @@ class ModelAppendTest extends RolineTest
      *
      * Verifies that new properties are inserted in the correct location
      * (before the MODEL METHODS comment).
+     *
+     * What Gets Verified:
+     *   - Property exists in model file
+     *   - MODEL METHODS section exists
+     *   - Property position is before MODEL METHODS
+     *   - Code structure is maintained
      *
      * @return void
      */
