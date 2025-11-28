@@ -93,11 +93,114 @@ class ModelCreate extends ModelCommand
         {
             $this->success("Model created: {$path}");
             $this->info("Table name: {$tableName}");
+            $this->line();
+
+            // Interactive prompt: ask if user wants to add properties
+            $addProperties = $this->confirm("Would you like to add properties to this model now?");
+
+            if ($addProperties)
+            {
+                $this->addPropertiesInteractively($path, $name);
+            }
+            else
+            {
+                $this->line();
+                $this->info("You can add properties later using: php roline model:append {$name}");
+                $this->line();
+            }
         }
         else
         {
             $this->error("Failed to create model: {$result->errorMessage}");
             exit(1);
+        }
+    }
+
+    /**
+     * Interactively add properties to model
+     *
+     * Prompts user for property names and types, then inserts @column
+     * annotations into the model file.
+     *
+     * @param string $modelPath Path to model file
+     * @param string $modelName Model name (without Model suffix)
+     * @return void
+     */
+    private function addPropertiesInteractively($modelPath, $modelName)
+    {
+        $this->line();
+        $this->info("Add properties (press Enter with empty name to finish):");
+        $this->line();
+
+        $properties = [];
+
+        while (true)
+        {
+            // Get property name
+            $this->line("Property name (or press Enter to finish): ", false);
+            $propertyName = trim(fgets(STDIN));
+
+            if (empty($propertyName))
+            {
+                break;
+            }
+
+            // Get property type
+            $this->line("Property type [varchar(255)]: ", false);
+            $propertyType = trim(fgets(STDIN));
+
+            if (empty($propertyType))
+            {
+                $propertyType = 'varchar(255)';
+            }
+
+            $properties[] = [
+                'name' => $propertyName,
+                'type' => $propertyType
+            ];
+
+            $this->success("  Added: \${$propertyName} ({$propertyType})");
+        }
+
+        if (!empty($properties))
+        {
+            // Read current model content
+            $content = file_get_contents($modelPath);
+
+            // Build properties code
+            $propertiesCode = "\n";
+            foreach ($properties as $prop)
+            {
+                $propertiesCode .= "    /**\n";
+                $propertiesCode .= "     * @column\n";
+                $propertiesCode .= "     * @{$prop['type']}\n";
+                $propertiesCode .= "     */\n";
+                $propertiesCode .= "    protected \${$prop['name']};\n\n";
+            }
+
+            // Insert before MODEL METHODS section
+            $content = str_replace(
+                '// ==================== MODEL METHODS ====================',
+                $propertiesCode . '    // ==================== MODEL METHODS ====================',
+                $content
+            );
+
+            // Write back to file
+            file_put_contents($modelPath, $content);
+
+            $this->line();
+            $this->success("Added " . count($properties) . " properties to {$modelName}Model");
+            $this->line();
+            $this->info("Next steps:");
+            $this->info("  1. Review the model file: {$modelPath}");
+            $this->info("  2. Create the table: php roline model:create-table {$modelName}");
+            $this->line();
+        }
+        else
+        {
+            $this->line();
+            $this->info("No properties added.");
+            $this->line();
         }
     }
 }
