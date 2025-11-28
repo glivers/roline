@@ -71,21 +71,41 @@ abstract class RolineTest extends TestCase
     protected $createdDirectories = [];
 
     /**
-     * Clean up created files and directories after each test
+     * Database tables created during tests that need cleanup
+     *
+     * Use trackTable() to add tables to this list.
+     * Tables are automatically dropped in tearDown() after each test.
+     *
+     * @var array<string> Table names
+     */
+    protected $createdTables = [];
+
+    /**
+     * Clean up created files, directories, and database tables after each test
      *
      * This method is automatically called by PHPUnit after each test completes.
-     * It ensures a clean state between tests by removing all tracked files/directories.
+     * It ensures a clean state between tests by removing all tracked resources.
      *
      * Cleanup order:
-     * 1. Delete all tracked files
-     * 2. Delete all tracked directories (in reverse order for nested dirs)
-     * 3. Reset tracking arrays
+     * 1. Drop all tracked database tables
+     * 2. Delete all tracked files
+     * 3. Delete all tracked directories (in reverse order for nested dirs)
+     * 4. Reset tracking arrays
      *
      * @return void
      */
     protected function tearDown(): void
     {
         parent::tearDown();
+
+        // Drop created database tables
+        foreach ($this->createdTables as $tableName) {
+            try {
+                $this->dropTable($tableName);
+            } catch (\Exception $e) {
+                // Silently ignore - table may not exist
+            }
+        }
 
         // Delete created files
         foreach ($this->createdFiles as $file) {
@@ -102,6 +122,7 @@ abstract class RolineTest extends TestCase
         }
 
         // Reset tracking arrays for next test
+        $this->createdTables = [];
         $this->createdFiles = [];
         $this->createdDirectories = [];
     }
@@ -296,5 +317,209 @@ abstract class RolineTest extends TestCase
     protected function assertDirectoryCreated($dirPath, $message = '')
     {
         $this->assertDirectoryExists($dirPath, $message ?: "Directory was not created: {$dirPath}");
+    }
+
+    /**
+     * Track a database table for automatic cleanup after test completes
+     *
+     * Call this method BEFORE creating a table to ensure it gets dropped
+     * even if the test fails or throws an exception.
+     *
+     * Example:
+     *   $this->trackTable('test_products');
+     *   $this->runCommand('table:create Product');
+     *
+     * @param string $tableName Name of table that will be created
+     * @return void
+     */
+    protected function trackTable($tableName)
+    {
+        $this->createdTables[] = $tableName;
+    }
+
+    /**
+     * Get PDO database connection for direct queries
+     *
+     * Returns a PDO connection using the database configuration from
+     * config/database.php (same as Rachie framework uses).
+     *
+     * @return \PDO Database connection
+     */
+    protected function getDb()
+    {
+        static $pdo = null;
+
+        if ($pdo === null) {
+            $config = require RACHIE_ROOT . '/config/database.php';
+            $dbConfig = $config[$config['default']];
+
+            $dsn = "mysql:host={$dbConfig['host']};dbname={$dbConfig['database']};charset={$dbConfig['charset']}";
+            $pdo = new \PDO($dsn, $dbConfig['username'], $dbConfig['password'], [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+            ]);
+        }
+
+        return $pdo;
+    }
+
+    /**
+     * Drop a database table if it exists
+     *
+     * Helper method used by tearDown() to clean up tables.
+     *
+     * @param string $tableName Name of table to drop
+     * @return void
+     */
+    protected function dropTable($tableName)
+    {
+        $db = $this->getDb();
+        $db->exec("DROP TABLE IF EXISTS `{$tableName}`");
+    }
+
+    /**
+     * Assert that a database table exists
+     *
+     * Verifies that a table was created in the database by querying
+     * information_schema.tables.
+     *
+     * Example usage:
+     *   $this->runCommand('table:create Product', ['yes']);
+     *   $this->assertTableExists('products');
+     *
+     * @param string $tableName Name of table that should exist
+     * @param string $message   Optional custom failure message
+     * @return void
+     */
+    protected function assertTableExists($tableName, $message = '')
+    {
+        $db = $this->getDb();
+        $config = require RACHIE_ROOT . '/config/database.php';
+        $database = $config[$config['default']]['database'];
+
+        $stmt = $db->prepare("
+            SELECT COUNT(*) as count
+            FROM information_schema.tables
+            WHERE table_schema = ?
+            AND table_name = ?
+        ");
+        $stmt->execute([$database, $tableName]);
+        $result = $stmt->fetch();
+
+        $this->assertEquals(
+            1,
+            $result['count'],
+            $message ?: "Table '{$tableName}' does not exist in database"
+        );
+    }
+
+    /**
+     * Assert that a database table does not exist
+     *
+     * Verifies that a table was NOT created (or was successfully deleted).
+     *
+     * Example usage:
+     *   $this->runCommand('table:delete Product', ['yes']);
+     *   $this->assertTableDoesNotExist('products');
+     *
+     * @param string $tableName Name of table that should not exist
+     * @param string $message   Optional custom failure message
+     * @return void
+     */
+    protected function assertTableDoesNotExist($tableName, $message = '')
+    {
+        $db = $this->getDb();
+        $config = require RACHIE_ROOT . '/config/database.php';
+        $database = $config[$config['default']]['database'];
+
+        $stmt = $db->prepare("
+            SELECT COUNT(*) as count
+            FROM information_schema.tables
+            WHERE table_schema = ?
+            AND table_name = ?
+        ");
+        $stmt->execute([$database, $tableName]);
+        $result = $stmt->fetch();
+
+        $this->assertEquals(
+            0,
+            $result['count'],
+            $message ?: "Table '{$tableName}' exists in database but should not"
+        );
+    }
+
+    /**
+     * Assert that a column exists in a table
+     *
+     * Verifies that a specific column was created in a table by querying
+     * information_schema.columns.
+     *
+     * Example usage:
+     *   $this->assertColumnExists('products', 'name');
+     *   $this->assertColumnExists('products', 'price');
+     *
+     * @param string $tableName  Name of table to check
+     * @param string $columnName Name of column that should exist
+     * @param string $message    Optional custom failure message
+     * @return void
+     */
+    protected function assertColumnExists($tableName, $columnName, $message = '')
+    {
+        $db = $this->getDb();
+        $config = require RACHIE_ROOT . '/config/database.php';
+        $database = $config[$config['default']]['database'];
+
+        $stmt = $db->prepare("
+            SELECT COUNT(*) as count
+            FROM information_schema.columns
+            WHERE table_schema = ?
+            AND table_name = ?
+            AND column_name = ?
+        ");
+        $stmt->execute([$database, $tableName, $columnName]);
+        $result = $stmt->fetch();
+
+        $this->assertEquals(
+            1,
+            $result['count'],
+            $message ?: "Column '{$columnName}' does not exist in table '{$tableName}'"
+        );
+    }
+
+    /**
+     * Assert that a column is the primary key
+     *
+     * Verifies that a specific column is defined as the primary key of a table.
+     *
+     * Example usage:
+     *   $this->assertPrimaryKey('products', 'id');
+     *
+     * @param string $tableName  Name of table to check
+     * @param string $columnName Name of column that should be primary key
+     * @param string $message    Optional custom failure message
+     * @return void
+     */
+    protected function assertPrimaryKey($tableName, $columnName, $message = '')
+    {
+        $db = $this->getDb();
+        $config = require RACHIE_ROOT . '/config/database.php';
+        $database = $config[$config['default']]['database'];
+
+        $stmt = $db->prepare("
+            SELECT COUNT(*) as count
+            FROM information_schema.columns
+            WHERE table_schema = ?
+            AND table_name = ?
+            AND column_name = ?
+            AND column_key = 'PRI'
+        ");
+        $stmt->execute([$database, $tableName, $columnName]);
+        $result = $stmt->fetch();
+
+        $this->assertEquals(
+            1,
+            $result['count'],
+            $message ?: "Column '{$columnName}' is not a primary key in table '{$tableName}'"
+        );
     }
 }

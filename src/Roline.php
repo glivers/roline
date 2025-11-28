@@ -199,18 +199,25 @@ class Roline
             'controller:delete'   => Commands\Controller\ControllerDelete::class,
             'controller:complete' => Commands\Controller\ControllerComplete::class,
 
-            // Model commands - Generate and manage model classes
+            // Model commands - Generate and manage model classes and tables
             'model:create'        => Commands\Model\ModelCreate::class,
             'model:delete'        => Commands\Model\ModelDelete::class,
+            'model:append'        => Commands\Model\ModelAppend::class,
+            'model:create-table'  => Commands\Model\ModelCreateTable::class,
+            'model:update-table'  => Commands\Model\ModelUpdateTable::class,
+            'model:drop-table'    => Commands\Model\ModelDropTable::class,
+            'model:rename-table'  => Commands\Model\ModelRenameTable::class,
+            'model:table-schema'  => Commands\Model\ModelTableSchema::class,
+            'model:empty-table'   => Commands\Model\ModelEmptyTable::class,
+            'model:export-table'  => Commands\Model\ModelExportTable::class,
 
             // View commands - Create and manage view templates
             'view:create'         => Commands\View\ViewCreate::class,
             'view:add'            => Commands\View\ViewAdd::class,
             'view:delete'         => Commands\View\ViewDelete::class,
 
-            // Table commands - Database schema operations from model annotations
+            // Table commands - Direct database table operations (no models required)
             'table:create'        => Commands\Table\TableCreate::class,
-            'table:update'        => Commands\Table\TableUpdate::class,
             'table:delete'        => Commands\Table\TableDelete::class,
             'table:rename'        => Commands\Table\TableRename::class,
             'table:schema'        => Commands\Table\TableSchema::class,
