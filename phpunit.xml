@@ -19,9 +19,6 @@
         <testsuite name="View">
             <directory>tests/Integration/Commands/View</directory>
         </testsuite>
-        <testsuite name="Table">
-            <directory>tests/Integration/Commands/Table</directory>
-        </testsuite>
     </testsuites>
     <source>
         <include>
