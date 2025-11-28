@@ -522,4 +522,55 @@ abstract class RolineTest extends TestCase
             $message ?: "Column '{$columnName}' is not a primary key in table '{$tableName}'"
         );
     }
+
+    /**
+     * Insert test data into a table
+     *
+     * Helper method to insert multiple rows of test data into a table.
+     *
+     * Example usage:
+     *   $this->insertTestData('products', [
+     *       ['name' => 'Product 1', 'price' => 10.99],
+     *       ['name' => 'Product 2', 'price' => 20.99],
+     *   ]);
+     *
+     * @param string $tableName Name of table to insert into
+     * @param array  $rows      Array of associative arrays (each row is column => value)
+     * @return void
+     */
+    protected function insertTestData($tableName, $rows)
+    {
+        $db = $this->getDb();
+
+        foreach ($rows as $row) {
+            $columns = array_keys($row);
+            $placeholders = array_fill(0, count($columns), '?');
+
+            $sql = "INSERT INTO `{$tableName}` (`" . implode('`, `', $columns) . "`)
+                    VALUES (" . implode(', ', $placeholders) . ")";
+
+            $stmt = $db->prepare($sql);
+            $stmt->execute(array_values($row));
+        }
+    }
+
+    /**
+     * Get the number of rows in a table
+     *
+     * Helper method to count rows in a table.
+     *
+     * Example usage:
+     *   $count = $this->getTableRowCount('products');
+     *   $this->assertEquals(5, $count);
+     *
+     * @param string $tableName Name of table to count rows in
+     * @return int Number of rows in table
+     */
+    protected function getTableRowCount($tableName)
+    {
+        $db = $this->getDb();
+        $stmt = $db->query("SELECT COUNT(*) as count FROM `{$tableName}`");
+        $result = $stmt->fetch();
+        return (int) $result['count'];
+    }
 }
