@@ -15,16 +15,16 @@
  *
  * Schema Annotation Format:
  *   Each model property with @column becomes a database column:
- *   ```php
- *   /** @column @primary @autonumber */
- *   protected $id;
  *
- *   /** @column @string(255) */
- *   protected $title;
+ *   Example:
+ *     @column @primary @autonumber
+ *     protected $id;
  *
- *   /** @column @datetime */
- *   protected $date_created;
- *   ```
+ *     @column @string(255)
+ *     protected $title;
+ *
+ *     @column @datetime
+ *     protected $date_created;
  *
  * Auto-Fix Features:
  *   - Missing Timestamps - Offers to add date_created/date_modified properties

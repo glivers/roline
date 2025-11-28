@@ -32,19 +32,18 @@
  *   - Removing obsolete columns with @drop annotation
  *
  * Example Model Annotations:
- * ```php
- * // Add new column
- * /** @column @varchar(100) */
- * protected $new_field;
  *
- * // Rename column
- * /** @column @rename old_email @varchar(255) */
- * protected $email;
+ * Add new column:
+ *   @column @varchar(100)
+ *   protected $new_field;
  *
- * // Drop column
- * /** @column @drop */
- * protected $obsolete_field;
- * ```
+ * Rename column:
+ *   @column @rename old_email @varchar(255)
+ *   protected $email;
+ *
+ * Drop column:
+ *   @column @drop
+ *   protected $obsolete_field;
  *
  * Workflow:
  *   1. Modify model @column annotations
