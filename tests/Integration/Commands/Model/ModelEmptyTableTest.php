@@ -1,24 +1,45 @@
 <?php namespace Tests\Integration\Commands;
 
+/**
+ * Integration Tests for model:empty-table command
+ *
+ * Tests the complete flow of emptying database tables via model references using
+ * the Roline CLI. These integration tests execute the actual model:empty-table
+ * command and verify that all rows are deleted while preserving table structure.
+ *
+ * What Gets Tested:
+ *   - Emptying table with user confirmation
+ *   - Cancelling empty operation preserves data
+ *   - Validation: Cannot empty non-existent table
+ *   - Validation: Cannot empty table for non-existent model
+ *   - Table structure (columns, indexes) preserved after emptying
+ *   - All rows are deleted when confirmed
+ *   - Required model name argument validation
+ *
+ * Test Strategy:
+ *   - Tests create models and tables via model:create and model:create-table
+ *   - Test data is inserted via insertTestData() helper
+ *   - Model files tracked via trackFile(), tables via trackTable()
+ *   - Commands executed via runCommand() with confirmation inputs
+ *   - Row counts verified before and after operations
+ *   - Column existence verified to ensure structure preservation
+ *
+ * File and Table Cleanup:
+ *   All created model files and tables are automatically removed after each test
+ *   via tearDown() inherited from RolineTest base class. No manual cleanup required.
+ *
+ * @author Geoffrey Okongo <code@rachie.dev>
+ * @copyright 2015 - 2050 Geoffrey Okongo
+ * @category Roline
+ * @package Tests\Integration\Commands
+ * @link https://github.com/glivers/roline
+ * @license http://opensource.org/licenses/MIT MIT License
+ * @version 1.0.0
+ * @see RolineTest For base test functionality and cleanup mechanisms
+ */
+
 use Tests\RolineTest;
 
-/**
- * ModelEmptyTable Command Integration Tests
- *
- * Tests the model:empty-table command which deletes all rows from a table
- * while preserving the table structure.
- *
- * Test Coverage:
- *   - Emptying table with confirmation
- *   - Cancelling empty operation
- *   - Attempting to empty non-existent table
- *   - Attempting to empty table for non-existent model
- *   - Verifying table structure is preserved after emptying
- *   - Verifying all rows are deleted
- *
- * @category Tests
- * @package  Tests\Integration\Commands
- */
 class ModelEmptyTableTest extends RolineTest
 {
     /**
@@ -26,6 +47,15 @@ class ModelEmptyTableTest extends RolineTest
      *
      * Verifies that model:empty-table deletes all rows when confirmed,
      * but preserves table structure.
+     *
+     * What Gets Verified:
+     *   - Table exists before emptying
+     *   - Test data is inserted successfully
+     *   - Row count is correct before emptying
+     *   - Confirmation is accepted
+     *   - Table still exists after emptying
+     *   - All rows are deleted (count = 0)
+     *   - Success message is displayed
      *
      * @return void
      */
@@ -79,6 +109,13 @@ class ModelEmptyTableTest extends RolineTest
      *
      * Verifies that model:empty-table preserves data when user declines.
      *
+     * What Gets Verified:
+     *   - Test data exists before cancellation
+     *   - Confirmation is declined
+     *   - Data is preserved after cancellation
+     *   - Row count remains unchanged
+     *   - Cancellation message is displayed
+     *
      * @return void
      */
     public function testCancelEmptyTable()
@@ -122,6 +159,12 @@ class ModelEmptyTableTest extends RolineTest
      *
      * Verifies that model:empty-table fails gracefully when table doesn't exist.
      *
+     * What Gets Verified:
+     *   - Model exists but table doesn't
+     *   - Command detects non-existent table
+     *   - Error message is displayed
+     *   - No database changes occur
+     *
      * @return void
      */
     public function testEmptyNonExistentTable()
@@ -150,6 +193,13 @@ class ModelEmptyTableTest extends RolineTest
     /**
      * Test emptying table from non-existent model
      *
+     * Verifies that model:empty-table fails gracefully when model file doesn't exist.
+     *
+     * What Gets Verified:
+     *   - Command detects non-existent model
+     *   - Error message is displayed
+     *   - No database operations attempted
+     *
      * @return void
      */
     public function testEmptyTableFromNonExistentModel()
@@ -168,6 +218,14 @@ class ModelEmptyTableTest extends RolineTest
     /**
      * Test model:empty-table requires model name argument
      *
+     * Verifies that model:empty-table validates required arguments and displays
+     * appropriate error message when model name is missing.
+     *
+     * What Gets Verified:
+     *   - Missing argument is detected
+     *   - Error or usage message is displayed
+     *   - Command exits without prompting
+     *
      * @return void
      */
     public function testRequiresModelNameArgument()
@@ -185,6 +243,12 @@ class ModelEmptyTableTest extends RolineTest
      * Test table structure preserved after emptying
      *
      * Verifies that columns, indexes, and constraints are preserved.
+     *
+     * What Gets Verified:
+     *   - All columns exist before emptying
+     *   - Table is successfully emptied
+     *   - All columns still exist after emptying
+     *   - Table structure remains intact
      *
      * @return void
      */
