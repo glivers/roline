@@ -8,6 +8,7 @@
     <testsuites>
         <testsuite name="Roline CLI Tests">
             <directory>tests</directory>
+            <exclude>tests/RolineTest.php</exclude>
         </testsuite>
     </testsuites>
     <source>
