@@ -95,15 +95,24 @@ abstract class ModelCommand extends Command
      * Convert CamelCase to snake_case
      *
      * Transforms model names like 'UserProfile' to 'user_profile' for table naming.
-     * Handles consecutive uppercase letters (e.g., 'XMLParser' → 'xml_parser').
+     * Handles consecutive uppercase letters (acronyms) intelligently:
+     * - 'ExportSQL' → 'export_sql' (not 'export_s_q_l')
+     * - 'XMLParser' → 'xml_parser' (not 'x_m_l_parser')
+     * - 'UserProfile' → 'user_profile'
      *
      * @param string $name CamelCase string
      * @return string snake_case string
      */
     protected function toSnakeCase($name)
     {
-        // Insert underscore before uppercase letters and convert to lowercase
-        $snake = preg_replace('/(?<!^)[A-Z]/', '_$0', $name);
+        // Insert underscore before uppercase letters that follow lowercase letters
+        // This keeps acronyms together: ExportSQL → Export_SQL, XMLParser → XML_Parser
+        $snake = preg_replace('/(?<=[a-z])([A-Z])/', '_$1', $name);
+
+        // Also insert underscore before uppercase letter followed by lowercase (end of acronym)
+        // XMLParser → XML_Parser, APIController → API_Controller
+        $snake = preg_replace('/(?<=[A-Z])([A-Z])(?=[a-z])/', '_$1', $snake);
+
         return strtolower($snake);
     }
 

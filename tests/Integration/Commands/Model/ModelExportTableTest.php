@@ -31,7 +31,7 @@ class ModelExportTableTest extends RolineTest
     public function testExportToSQLFormat()
     {
         $modelName = 'ExportSQL';
-        $tableName = 'export_s_q_ls';  // pluralize() treats SQL as separate letters
+        $tableName = 'export_sqls';  // toSnakeCase() keeps acronyms together
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
         $exportFile = RACHIE_ROOT . '/application/storage/exports/test_export.sql';
 
@@ -83,7 +83,7 @@ class ModelExportTableTest extends RolineTest
     public function testExportToCSVFormat()
     {
         $modelName = 'ExportCSV';
-        $tableName = 'export_c_s_vs';  // pluralize() treats CSV as separate letters
+        $tableName = 'export_csvs';  // toSnakeCase() keeps acronyms together
         $modelPath = TEST_MODELS_PATH . '/' . $modelName . 'Model.php';
         $exportFile = RACHIE_ROOT . '/application/storage/exports/test_export.csv';
 
