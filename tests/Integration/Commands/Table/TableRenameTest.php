@@ -1,20 +1,39 @@
 <?php namespace Tests\Integration\Commands;
 
 /**
- * TableRename Command Integration Tests
+ * Integration Tests for table:rename command
  *
- * Tests the table:rename command which renames database tables directly
- * without requiring model classes.
+ * Tests the complete flow of renaming database tables directly via the Roline CLI
+ * without requiring model classes. These integration tests execute the actual
+ * table:rename command and verify that tables are correctly renamed with proper
+ * confirmation prompts and validation.
  *
- * Test Coverage:
- *   - Renaming table with confirmation
- *   - Cancelling table rename
- *   - Attempting to rename non-existent table
- *   - Attempting to rename to existing table name
- *   - Required arguments validation (both old and new names)
+ * What Gets Tested:
+ *   - Table renaming with user confirmation
+ *   - Cancelling rename operation
+ *   - Validation: Cannot rename non-existent table
+ *   - Validation: Cannot rename to existing table name
+ *   - Required arguments validation (old and new names)
  *
- * @category Tests
- * @package  Tests\Integration\Commands
+ * Test Strategy:
+ *   - Each test uses raw SQL CREATE TABLE for setup
+ *   - Tables are tracked via trackTable() for automatic cleanup
+ *   - Commands are executed via runCommand() with confirmation inputs
+ *   - Output assertions verify success/error/cancellation messages
+ *   - Database assertions verify table existence before and after operations
+ *
+ * Table Cleanup:
+ *   All created tables are automatically dropped after each test via tearDown()
+ *   inherited from RolineTest base class. No manual cleanup required.
+ *
+ * @author Geoffrey Okongo <code@rachie.dev>
+ * @copyright 2015 - 2050 Geoffrey Okongo
+ * @category Roline
+ * @package Tests\Integration\Commands
+ * @link https://github.com/glivers/roline
+ * @license http://opensource.org/licenses/MIT MIT License
+ * @version 1.0.0
+ * @see RolineTest For base test functionality and cleanup mechanisms
  */
 
 use Tests\RolineTest;
@@ -23,6 +42,16 @@ class TableRenameTest extends RolineTest
 {
     /**
      * Test renaming table with confirmation
+     *
+     * Verifies that table:rename command successfully renames a table when
+     * the user confirms the operation.
+     *
+     * What Gets Verified:
+     *   - Old table name exists before rename
+     *   - Confirmation prompt is accepted
+     *   - Old table name no longer exists
+     *   - New table name exists in database
+     *   - Success message is displayed
      *
      * @return void
      */
@@ -59,6 +88,16 @@ class TableRenameTest extends RolineTest
     /**
      * Test cancelling table rename
      *
+     * Verifies that table:rename command preserves the original table name
+     * when user cancels the operation by responding 'no' to confirmation.
+     *
+     * What Gets Verified:
+     *   - Original table exists before rename attempt
+     *   - Confirmation prompt is declined
+     *   - Original table name still exists
+     *   - New table name does not exist
+     *   - Cancellation message is displayed
+     *
      * @return void
      */
     public function testCancelTableRename()
@@ -93,6 +132,14 @@ class TableRenameTest extends RolineTest
     /**
      * Test renaming non-existent table
      *
+     * Verifies that table:rename command properly detects and rejects attempts
+     * to rename a table that doesn't exist in the database.
+     *
+     * What Gets Verified:
+     *   - Command detects non-existent table
+     *   - Error message is displayed
+     *   - No database changes occur
+     *
      * @return void
      */
     public function testRenameNonExistentTable()
@@ -111,6 +158,15 @@ class TableRenameTest extends RolineTest
 
     /**
      * Test renaming to existing table name
+     *
+     * Verifies that table:rename command properly detects and rejects attempts
+     * to rename a table to a name that's already in use by another table.
+     *
+     * What Gets Verified:
+     *   - Command detects name collision
+     *   - Error message is displayed
+     *   - Both original tables remain unchanged
+     *   - No data loss occurs
      *
      * @return void
      */
@@ -139,6 +195,15 @@ class TableRenameTest extends RolineTest
 
     /**
      * Test table:rename requires both arguments
+     *
+     * Verifies that table:rename command validates required arguments and
+     * displays appropriate error messages when arguments are missing.
+     *
+     * What Gets Verified:
+     *   - Missing all arguments is detected
+     *   - Missing new name is detected
+     *   - Error or usage message is displayed
+     *   - Command exits without renaming anything
      *
      * @return void
      */
