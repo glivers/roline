@@ -32,12 +32,12 @@ abstract class ModelCommand extends Command
     /**
      * Validate and normalize model name
      *
-     * Ensures a model name is provided and removes the 'Model' suffix
-     * if the user included it. This allows both 'User' and 'UserModel'
-     * as valid input.
+     * Ensures a model name is provided, capitalizes first letter, and removes
+     * the 'Model' suffix if the user included it. This allows 'user', 'User',
+     * 'UserModel' as valid input, all normalized to 'User'.
      *
      * @param string|null $name Model name from user input
-     * @return string Normalized name without 'Model' suffix
+     * @return string Normalized name without 'Model' suffix, first letter capitalized
      */
     protected function validateName($name)
     {
@@ -46,6 +46,9 @@ abstract class ModelCommand extends Command
             $this->error('Model name is required');
             exit(1);
         }
+
+        // Capitalize first letter (allows lowercase input like 'user')
+        $name = ucfirst($name);
 
         // Remove 'Model' suffix if user provided it
         // Example: 'UserModel' becomes 'User'
@@ -89,18 +92,85 @@ abstract class ModelCommand extends Command
     }
 
     /**
+     * Convert CamelCase to snake_case
+     *
+     * Transforms model names like 'UserProfile' to 'user_profile' for table naming.
+     * Handles consecutive uppercase letters (e.g., 'XMLParser' → 'xml_parser').
+     *
+     * @param string $name CamelCase string
+     * @return string snake_case string
+     */
+    protected function toSnakeCase($name)
+    {
+        // Insert underscore before uppercase letters and convert to lowercase
+        $snake = preg_replace('/(?<!^)[A-Z]/', '_$0', $name);
+        return strtolower($snake);
+    }
+
+    /**
      * Generate plural table name from model name
      *
-     * Uses simple pluralization by adding 's' to the lowercase model name.
-     * This works for most English nouns but has known limitations for
-     * irregular plurals (e.g., 'Person' → 'persons' not 'people').
-     * Users can override the table name in their model if needed.
+     * Converts model name to snake_case and applies English pluralization rules:
+     * - Irregular plurals (person → people, child → children, etc.)
+     * - Words ending in 'y' preceded by consonant (category → categories)
+     * - Words ending in 's', 'x', 'z', 'ch', 'sh' (address → addresses)
+     * - Words ending in 'f' or 'fe' (leaf → leaves, knife → knives)
+     * - Default: add 's' (user → users, post → posts)
      *
-     * @param string $name Model name (e.g., 'User', 'Post', 'Category')
-     * @return string Plural table name (e.g., 'users', 'posts', 'categorys')
+     * @param string $name Model name (e.g., 'User', 'Category', 'UserProfile')
+     * @return string Plural snake_case table name (e.g., 'users', 'categories', 'user_profiles')
      */
     protected function pluralize($name)
     {
-        return strtolower($name) . 's';
+        // Convert to snake_case first
+        $snake = $this->toSnakeCase($name);
+
+        // Handle compound words (split on underscores, pluralize last word)
+        $parts = explode('_', $snake);
+        $lastWord = array_pop($parts);
+
+        // Irregular plurals map
+        $irregulars = [
+            'person' => 'people',
+            'man' => 'men',
+            'woman' => 'women',
+            'child' => 'children',
+            'tooth' => 'teeth',
+            'foot' => 'feet',
+            'mouse' => 'mice',
+            'goose' => 'geese',
+        ];
+
+        // Check for irregular plurals
+        if (isset($irregulars[$lastWord])) {
+            $parts[] = $irregulars[$lastWord];
+            return implode('_', $parts);
+        }
+
+        // Words ending in 'y' preceded by consonant: category → categories
+        if (preg_match('/[^aeiou]y$/', $lastWord)) {
+            $parts[] = substr($lastWord, 0, -1) . 'ies';
+            return implode('_', $parts);
+        }
+
+        // Words ending in 's', 'x', 'z', 'ch', 'sh': address → addresses
+        if (preg_match('/(s|x|z|ch|sh)$/', $lastWord)) {
+            $parts[] = $lastWord . 'es';
+            return implode('_', $parts);
+        }
+
+        // Words ending in 'f' or 'fe': leaf → leaves, knife → knives
+        if (preg_match('/f$/', $lastWord)) {
+            $parts[] = substr($lastWord, 0, -1) . 'ves';
+            return implode('_', $parts);
+        }
+        if (preg_match('/fe$/', $lastWord)) {
+            $parts[] = substr($lastWord, 0, -2) . 'ves';
+            return implode('_', $parts);
+        }
+
+        // Default: add 's'
+        $parts[] = $lastWord . 's';
+        return implode('_', $parts);
     }
 }
