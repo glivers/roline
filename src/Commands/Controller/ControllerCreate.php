@@ -118,11 +118,128 @@ class ControllerCreate extends ControllerCommand
         if ($result->success)
         {
             $this->success("Controller created: {$path}");
+            $this->line();
+
+            // Interactive prompt: ask if user wants to add custom methods
+            $addMethods = $this->confirm("Would you like to add custom methods to this controller now?");
+
+            if ($addMethods)
+            {
+                $this->addMethodsInteractively($path, $name);
+            }
+            else
+            {
+                $this->line();
+                $this->info("You can add methods later using: php roline controller:append {$name}");
+                $this->line();
+            }
         }
         else
         {
             $this->error("Failed to create controller: {$result->errorMessage}");
             exit(1);
+        }
+    }
+
+    /**
+     * Interactively add methods to controller
+     *
+     * Prompts user for method names and HTTP verbs, then inserts methods
+     * into the controller file.
+     *
+     * @param string $controllerPath Path to controller file
+     * @param string $controllerName Controller name (without Controller suffix)
+     * @return void
+     */
+    private function addMethodsInteractively($controllerPath, $controllerName)
+    {
+        $this->line();
+        $this->info("Add custom methods (press Enter with empty name to finish):");
+        $this->line();
+        $this->info("HTTP verbs: get, post, put, delete, patch (leave empty for no prefix)");
+        $this->line();
+
+        $methods = [];
+
+        while (true)
+        {
+            // Get method name
+            $this->line("Method name (or press Enter to finish): ", false);
+            $methodName = trim(fgets(STDIN));
+
+            if (empty($methodName))
+            {
+                break;
+            }
+
+            // Get HTTP verb
+            $this->line("HTTP verb [get]: ", false);
+            $httpVerb = trim(fgets(STDIN));
+
+            if (empty($httpVerb))
+            {
+                $httpVerb = 'get';
+            }
+
+            // Validate HTTP verb
+            $validVerbs = ['get', 'post', 'put', 'delete', 'patch', ''];
+            if (!in_array(strtolower($httpVerb), $validVerbs))
+            {
+                $this->error("  Invalid HTTP verb. Use: get, post, put, delete, patch, or leave empty");
+                continue;
+            }
+
+            $fullMethodName = empty($httpVerb) ? $methodName : $httpVerb . ucfirst($methodName);
+
+            $methods[] = [
+                'name' => $methodName,
+                'verb' => $httpVerb,
+                'fullName' => $fullMethodName
+            ];
+
+            $this->success("  Added: {$fullMethodName}()");
+        }
+
+        if (!empty($methods))
+        {
+            // Read current controller content
+            $content = file_get_contents($controllerPath);
+
+            // Build methods code
+            $methodsCode = "\n";
+            foreach ($methods as $method)
+            {
+                $methodsCode .= "    /**\n";
+                $methodsCode .= "     * {$method['fullName']} method\n";
+                $methodsCode .= "     *\n";
+                $methodsCode .= "     * @return void\n";
+                $methodsCode .= "     */\n";
+                $methodsCode .= "    public function {$method['fullName']}()\n";
+                $methodsCode .= "    {\n";
+                $methodsCode .= "        // TODO: Implement {$method['fullName']} logic\n";
+                $methodsCode .= "    }\n\n";
+            }
+
+            // Insert before closing brace
+            $content = preg_replace('/}\s*$/', $methodsCode . "}\n", $content);
+
+            // Write back to file
+            file_put_contents($controllerPath, $content);
+
+            $this->line();
+            $this->success("Added " . count($methods) . " methods to {$controllerName}Controller");
+            $this->line();
+            $this->info("Next steps:");
+            $this->info("  1. Review the controller file: {$controllerPath}");
+            $this->info("  2. Implement the method logic");
+            $this->info("  3. Create corresponding views if needed");
+            $this->line();
+        }
+        else
+        {
+            $this->line();
+            $this->info("No methods added.");
+            $this->line();
         }
     }
 }
