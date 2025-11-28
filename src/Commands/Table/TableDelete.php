@@ -3,45 +3,22 @@
 /**
  * TableDelete Command
  *
- * Permanently drops a database table and ALL its data. This is an extremely
- * destructive operation that cannot be undone. Multiple confirmations required
- * before execution to prevent accidental data loss.
+ * Simple standalone command to drop (delete) a database table.
+ * Works with table names only - no model classes required.
  *
- * What Gets Deleted:
- *   - Complete database table
- *   - ALL rows and data within the table
- *   - Table structure and schema definition
- *   - Indexes, constraints, and triggers
+ * WARNING: This is a DESTRUCTIVE operation! All table data will be permanently lost.
  *
- * Safety Features:
- *   - Displays dramatic "DANGER ZONE" warning banner
- *   - Requires double confirmation before proceeding
- *   - Shows table name prominently in warnings
- *   - Explicit messaging that action cannot be undone
- *   - Validates model exists before attempting drop
+ * Features:
+ *   - Direct table deletion by name
+ *   - Confirmation prompt
+ *   - Validates table exists before deletion
  *
- * When to Use:
- *   - Removing obsolete tables no longer needed
- *   - Cleaning up development/testing databases
- *   - Restructuring database schema
- *   - NEVER on production without backup!
- *
- * Typical Workflow:
- *   1. User runs command with model name
- *   2. Command displays DANGER ZONE warning
- *   3. First confirmation prompt
- *   4. Second "absolutely sure" confirmation
- *   5. Table permanently dropped from database
- *
- * Important Warnings:
- *   - Cannot be undone after execution
- *   - All data permanently lost
- *   - Backup before running on production
- *   - Consider table:update for schema changes instead
+ * Note:
+ *   For model-based table deletion, use:
+ *   php roline model:drop-table <Model>
  *
  * Usage:
- *   php roline table:delete User
- *   php roline table:delete Post
+ *   php roline table:delete <tablename>
  *
  * @author Geoffrey Okongo <code@rachie.dev>
  * @copyright 2015 - 2050 Geoffrey Okongo
@@ -64,24 +41,21 @@ class TableDelete extends TableCommand
      */
     public function description()
     {
-        return 'Drop a database table';
+        return 'Drop (delete) a database table';
     }
 
     /**
      * Get command usage syntax
      *
-     * @return string Usage syntax showing required model name
+     * @return string Usage syntax showing required table name
      */
     public function usage()
     {
-        return '<Model|required>';
+        return '<tablename|required>';
     }
 
     /**
      * Display detailed help information
-     *
-     * Shows usage examples and critical warnings about the permanent and
-     * irreversible nature of this destructive operation.
      *
      * @return void
      */
@@ -90,118 +64,75 @@ class TableDelete extends TableCommand
         parent::help();
 
         Output::info('Arguments:');
-        Output::line('  <Model|required>  Model class name (without "Model" suffix)');
+        Output::line('  <tablename|required>  Database table name to drop');
         Output::line();
 
         Output::info('Examples:');
-        Output::line('  php roline table:delete User');
-        Output::line('  php roline table:delete Post');
+        Output::line('  php roline table:delete old_users');
+        Output::line('  php roline table:delete temp_data');
         Output::line();
 
         Output::info('Warning:');
-        Output::line('  This PERMANENTLY deletes the table and ALL data!');
-        Output::line('  This action CANNOT be undone!');
+        Output::line('  This permanently deletes the table and ALL its data!');
+        Output::line();
+
+        Output::info('Note:');
+        Output::line('  For model-based table deletion, use:');
+        Output::line('  php roline model:drop-table <Model>');
         Output::line();
     }
 
     /**
-     * Execute table deletion with double confirmation
+     * Execute table deletion
      *
-     * Permanently drops a database table after extracting table name from model
-     * and requiring TWO explicit confirmations from user. Displays dramatic
-     * warning banner to emphasize destructive nature. This cannot be undone.
-     *
-     * @param array $arguments Command arguments (model name at index 0)
-     * @return void Exits with status 0 on cancel, 1 on failure
+     * @param array $arguments Command arguments
+     * @return void
      */
     public function execute($arguments)
     {
-        // Validate model name argument is provided
         if (empty($arguments[0])) {
-            $this->error('Model name is required!');
+            $this->error('Table name is required!');
             $this->line();
-            $this->info('Usage: php roline table:delete <Model>');
+            $this->info('Usage: php roline table:delete <tablename>');
             exit(1);
         }
 
-        // Build fully-qualified model class name
-        $modelName = $arguments[0];
-        $modelClass = "Models\\{$modelName}Model";
+        $tableName = $arguments[0];
 
-        // Check if model class exists via autoloader
-        if (!class_exists($modelClass)) {
-            $this->error("Model class not found: {$modelClass}");
+        // Validate table exists
+        $schema = new MySQLSchema();
+        if (!$schema->tableExists($tableName)) {
+            $this->error("Table '{$tableName}' does not exist!");
             exit(1);
         }
 
-        // Extract table name from model's protected static $table property
-        try {
-            // Use reflection to access protected static property
-            $reflection = new \ReflectionClass($modelClass);
-            $tableProperty = $reflection->getProperty('table');
-            $tableProperty->setAccessible(true);
-            $tableName = $tableProperty->getValue();
-
-            // Validate table name is defined
-            if (empty($tableName)) {
-                $this->error('Model does not have a table name defined!');
-                exit(1);
-            }
-        } catch (\Exception $e) {
-            // Reflection failed
-            $this->error('Error reading model: ' . $e->getMessage());
-            exit(1);
-        }
-
-        // Display dramatic DANGER ZONE warning banner
+        // Show warning and request confirmation
         $this->line();
-        $this->error("╔═══════════════════════════════════════════════════════════╗");
-        $this->error("║                     DANGER ZONE                           ║");
-        $this->error("╚═══════════════════════════════════════════════════════════╝");
-        $this->line();
-        $this->error("You are about to PERMANENTLY DELETE table: {$tableName}");
-        $this->error("ALL DATA in this table will be LOST FOREVER!");
-        $this->error("This action CANNOT be undone!");
+        $this->error("WARNING: This will permanently drop table '{$tableName}'!");
+        $this->error("         All data will be lost!");
         $this->line();
 
-        // First confirmation - user must acknowledge table name
-        $confirmed1 = $this->confirm("Type the table name to confirm deletion: {$tableName}");
+        $confirmed = $this->confirm("Are you sure you want to drop this table?");
 
-        if (!$confirmed1) {
-            // User cancelled at first prompt
+        if (!$confirmed) {
             $this->info("Table deletion cancelled.");
             exit(0);
         }
 
-        // Second confirmation - "absolutely sure" double-check
-        $this->line();
-        $confirmed2 = $this->confirm("Are you ABSOLUTELY SURE you want to delete '{$tableName}'?");
-
-        if (!$confirmed2) {
-            // User cancelled at second prompt
-            $this->info("Table deletion cancelled.");
-            exit(0);
-        }
-
-        // Execute table drop via MySQLSchema
+        // Execute deletion
         try {
             $this->line();
             $this->info("Dropping table '{$tableName}'...");
 
-            // Create schema instance and execute DROP TABLE statement
-            $schema = new MySQLSchema();
-            $schema->dropTable($tableName);
+            $sql = "DROP TABLE `{$tableName}`";
+            $schema->rawQuery($sql);
 
-            // Table dropped successfully
             $this->line();
-            $this->success("Table '{$tableName}' has been dropped.");
+            $this->success("Table '{$tableName}' dropped successfully!");
             $this->line();
-
         } catch (\Exception $e) {
-            // Drop failed (SQL execution, database connection, etc.)
             $this->line();
-            $this->error("Failed to drop table!");
-            $this->error("Error: " . $e->getMessage());
+            $this->error("Failed to drop table: " . $e->getMessage());
             exit(1);
         }
     }

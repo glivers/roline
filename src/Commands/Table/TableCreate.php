@@ -3,58 +3,31 @@
 /**
  * TableCreate Command
  *
- * Creates database tables from model class @column docblock annotations. Reads
- * the model's schema definition from property annotations and generates appropriate
- * SQL DDL statements to create the table structure. This is a destructive operation
- * that DROPS existing tables before recreation.
+ * Simple standalone command to create a database table directly using SQL DDL.
+ * Works with table names only - no model classes required. Provides interactive
+ * column definition or accepts SQL file input.
  *
- * What Gets Created:
- *   - Database table matching model's $table property name
- *   - Columns defined by @column annotations on model properties
- *   - Primary keys, indexes, and constraints from annotations
+ * Features:
+ *   - Interactive column-by-column definition
+ *   - Primary key auto-detection
+ *   - Common column types (varchar, int, text, datetime, etc.)
+ *   - NULL/NOT NULL specification
+ *   - Default values
+ *   - Or import from SQL file
  *
- * Schema Annotation Format:
- *   Each model property with @column becomes a database column:
- *   ```php
- *   /** @column @primary @autonumber *\/
- *   protected $id;
+ * Use Cases:
+ *   - Quick table creation without models
+ *   - Database prototyping
+ *   - Creating lookup/reference tables
+ *   - Legacy database integration
  *
- *   /** @column @string(255) *\/
- *   protected $title;
- *
- *   /** @column @datetime *\/
- *   protected $date_created;
- *   ```
- *
- * Auto-Fix Features:
- *   - Missing Timestamps - Offers to add date_created/date_modified properties
- *   - Missing Primary Key - Offers to add id property with @primary @autonumber
- *   - Automatically modifies model file with user confirmation
- *   - Preserves existing code structure and formatting
- *
- * Safety Features:
- *   - Validates model class exists before proceeding
- *   - Checks for $table property definition
- *   - Shows table name and warns about data loss
- *   - Requires explicit user confirmation
- *   - Detailed error messages with resolution hints
- *
- * Important Warnings:
- *   - DROPS EXISTING TABLE - All data permanently lost!
- *   - Use table:update for safe schema modifications
- *   - Never run on production without backup
- *   - Cannot be undone after confirmation
- *
- * Typical Workflow:
- *   1. Define model with @column annotations
- *   2. Run table:create command
- *   3. Review table name and warnings
- *   4. Confirm creation (or fix validation errors)
- *   5. Table created in database
+ * Note:
+ *   For model-based table creation with @column annotations, use:
+ *   php roline model:create-table <Model>
  *
  * Usage:
- *   php roline table:create User
- *   php roline table:create Post
+ *   php roline table:create <tablename>
+ *   php roline table:create <tablename> --sql=create.sql
  *
  * @author Geoffrey Okongo <code@rachie.dev>
  * @copyright 2015 - 2050 Geoffrey Okongo
@@ -67,7 +40,6 @@
 
 use Roline\Output;
 use Roline\Schema\MySQLSchema;
-use Roline\Exceptions\Exceptions;
 
 class TableCreate extends TableCommand
 {
@@ -78,25 +50,21 @@ class TableCreate extends TableCommand
      */
     public function description()
     {
-        return 'Create table from Model @column annotations';
+        return 'Create a database table directly';
     }
 
     /**
      * Get command usage syntax
      *
-     * @return string Usage syntax showing required model name
+     * @return string Usage syntax showing required table name
      */
     public function usage()
     {
-        return '<Model|required>';
+        return '<tablename|required> [--sql=file]';
     }
 
     /**
      * Display detailed help information
-     *
-     * Shows required arguments, examples of table creation, and critical warnings
-     * about the destructive nature of this operation. Emphasizes that existing
-     * tables will be dropped and suggests table:update for safe modifications.
      *
      * @return void
      */
@@ -105,305 +73,202 @@ class TableCreate extends TableCommand
         parent::help();
 
         Output::info('Arguments:');
-        Output::line('  <Model|required>  Model class name (without "Model" suffix)');
+        Output::line('  <tablename|required>  Database table name');
+        Output::line('  --sql=file            SQL file with CREATE TABLE statement');
         Output::line();
 
         Output::info('Examples:');
-        Output::line('  php roline table:create User');
-        Output::line('  php roline table:create Post');
+        Output::line('  php roline table:create users');
+        Output::line('  php roline table:create categories --sql=schema.sql');
         Output::line();
 
         Output::info('Note:');
-        Output::line('  - Drops existing table before creating (data loss!)');
-        Output::line('  - Use table:update to modify existing tables safely');
+        Output::line('  For model-based tables with @column annotations, use:');
+        Output::line('  php roline model:create-table <Model>');
         Output::line();
     }
 
     /**
-     * Execute table creation from model annotations
+     * Execute table creation
      *
-     * Creates a database table by reading @column annotations from the model class.
-     * Validates model exists, extracts table name, shows warnings about data loss,
-     * requires user confirmation, and executes DDL via MySQLSchema. Handles validation
-     * errors with auto-fix offerings for common issues (missing timestamps, missing
-     * primary key). This is a DESTRUCTIVE operation that drops existing tables.
-     *
-     * @param array $arguments Command arguments (model name at index 0)
-     * @return void Exits with status 0 on cancel, 1 on failure
+     * @param array $arguments Command arguments
+     * @return void
      */
     public function execute($arguments)
     {
-        // Validate model name argument is provided
         if (empty($arguments[0])) {
-            $this->error('Model name is required!');
+            $this->error('Table name is required!');
             $this->line();
-            $this->info('Usage: php roline table:create <Model>');
-            $this->line();
-            $this->info('Example: php roline table:create User');
+            $this->info('Usage: php roline table:create <tablename>');
             exit(1);
         }
 
-        // Build fully-qualified model class name
-        $modelName = $arguments[0];
-        $modelClass = "Models\\{$modelName}Model";
+        $tableName = $arguments[0];
 
-        // Check if model class exists via autoloader
-        if (!class_exists($modelClass)) {
-            $this->error("Model class not found: {$modelClass}");
+        // Check if table already exists
+        $schema = new MySQLSchema();
+        if ($schema->tableExists($tableName)) {
+            $this->error("Table '{$tableName}' already exists!");
             $this->line();
-            $this->info('Create the model first: php roline model:create ' . $modelName);
+            $this->info("Use table:update to modify it, or table:delete to drop it.");
             exit(1);
         }
 
-        // Extract table name from model's protected static $table property
-        try {
-            // Use reflection to access protected static property
-            $reflection = new \ReflectionClass($modelClass);
-            $tableProperty = $reflection->getProperty('table');
-            $tableProperty->setAccessible(true);
-            $tableName = $tableProperty->getValue();
-
-            // Validate table name is defined and not empty
-            if (empty($tableName)) {
-                $this->error('Model does not have a table name defined!');
-                $this->line();
-                $this->info('Add this to your model: protected static $table = \'table_name\';');
-                exit(1);
+        // Check for --sql flag
+        $sqlFile = null;
+        foreach ($arguments as $arg) {
+            if (strpos($arg, '--sql=') === 0) {
+                $sqlFile = substr($arg, 6);
+                break;
             }
-        } catch (\Exception $e) {
-            // Reflection failed - property doesn't exist or other error
-            $this->error('Error reading model: ' . $e->getMessage());
+        }
+
+        if ($sqlFile) {
+            $this->createFromSQL($tableName, $sqlFile, $schema);
+        } else {
+            $this->createInteractive($tableName, $schema);
+        }
+    }
+
+    /**
+     * Create table from SQL file
+     *
+     * @param string $tableName Table name
+     * @param string $sqlFile SQL file path
+     * @param MySQLSchema $schema Schema instance
+     * @return void
+     */
+    private function createFromSQL($tableName, $sqlFile, $schema)
+    {
+        if (!file_exists($sqlFile)) {
+            $this->error("SQL file not found: {$sqlFile}");
             exit(1);
         }
 
-        // Display summary of what will be created and warnings about data loss
+        $sql = file_get_contents($sqlFile);
+
         $this->line();
-        $this->info("Creating table from Model: {$modelClass}");
-        $this->line("  Table name: {$tableName}");
+        $this->info("Creating table '{$tableName}' from SQL file...");
+
+        try {
+            $schema->rawQuery($sql);
+            $this->line();
+            $this->success("Table '{$tableName}' created successfully!");
+            $this->line();
+        } catch (\Exception $e) {
+            $this->line();
+            $this->error("Failed to create table: " . $e->getMessage());
+            exit(1);
+        }
+    }
+
+    /**
+     * Create table interactively
+     *
+     * @param string $tableName Table name
+     * @param MySQLSchema $schema Schema instance
+     * @return void
+     */
+    private function createInteractive($tableName, $schema)
+    {
         $this->line();
-        $this->error("WARNING: This will DROP the existing '{$tableName}' table if it exists!");
-        $this->error("         All data will be lost!");
+        $this->info("Creating table: {$tableName}");
+        $this->line();
+        $this->info("Define columns (press Enter with empty name to finish):");
         $this->line();
 
-        // Request user confirmation before proceeding with destructive operation
-        $confirmed = $this->confirm("Are you sure you want to create this table?");
+        $columns = [];
+        $primaryKey = null;
+
+        while (true) {
+            $this->line("Column name (or press Enter to finish): ", false);
+            $columnName = trim(fgets(STDIN));
+
+            if (empty($columnName)) {
+                break;
+            }
+
+            // Get column type
+            $this->line("Column type [VARCHAR(255)]: ", false);
+            $columnType = trim(fgets(STDIN));
+            if (empty($columnType)) {
+                $columnType = 'VARCHAR(255)';
+            }
+
+            // Get NULL/NOT NULL
+            $nullable = $this->confirm("Allow NULL?", false);
+            $nullConstraint = $nullable ? 'NULL' : 'NOT NULL';
+
+            // Get default value
+            $this->line("Default value (or press Enter for none): ", false);
+            $defaultValue = trim(fgets(STDIN));
+            $defaultConstraint = '';
+            if (!empty($defaultValue)) {
+                $defaultConstraint = "DEFAULT '{$defaultValue}'";
+            }
+
+            // Check if primary key
+            $isPrimary = $this->confirm("Is this the primary key?", false);
+            if ($isPrimary) {
+                $primaryKey = $columnName;
+                $nullConstraint = 'NOT NULL';
+
+                // Check if auto increment
+                $autoIncrement = $this->confirm("Auto increment?", true);
+                if ($autoIncrement) {
+                    $columnType .= ' AUTO_INCREMENT';
+                }
+            }
+
+            $columnDef = "`{$columnName}` {$columnType} {$nullConstraint} {$defaultConstraint}";
+            $columns[] = trim($columnDef);
+
+            $this->success("  Added: {$columnName} ({$columnType})");
+        }
+
+        if (empty($columns)) {
+            $this->line();
+            $this->info("No columns defined. Table creation cancelled.");
+            exit(0);
+        }
+
+        // Build CREATE TABLE SQL
+        $sql = "CREATE TABLE `{$tableName}` (\n  ";
+        $sql .= implode(",\n  ", $columns);
+
+        if ($primaryKey) {
+            $sql .= ",\n  PRIMARY KEY (`{$primaryKey}`)";
+        }
+
+        $sql .= "\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+
+        // Show SQL preview
+        $this->line();
+        $this->info("SQL Preview:");
+        $this->line($sql);
+        $this->line();
+
+        // Confirm creation
+        $confirmed = $this->confirm("Create this table?");
 
         if (!$confirmed) {
-            // User cancelled - exit without creating table
             $this->info("Table creation cancelled.");
             exit(0);
         }
 
-        // Execute table creation via MySQLSchema
+        // Execute creation
         try {
             $this->line();
-            $this->info("Creating table '{$tableName}'...");
+            $this->info("Creating table...");
+            $schema->rawQuery($sql);
 
-            // Create schema instance and execute DDL from model annotations
-            $schema = new MySQLSchema();
-            $schema->createTableFromModel($modelClass);
-
-            // Table created successfully
             $this->line();
             $this->success("Table '{$tableName}' created successfully!");
             $this->line();
-
-        } catch (Exceptions $e) {
-            // Schema validation or auto-fixable error occurred
-            $this->line();
-
-            // Check if error can be automatically fixed
-            if ($e->isAutoFixable()) {
-                // Display error details
-                $this->error(ucfirst(str_replace('_', ' ', $e->getErrorType())) . "!");
-                $this->line();
-                $this->error("Error: " . $e->getMessage());
-                $this->line();
-
-                // Offer auto-fix based on specific error type
-                switch ($e->getErrorType()) {
-                    case 'missing_timestamps':
-                        // Offer to add date_created and date_modified properties
-                        $addFix = $this->confirm("Would you like me to add the missing timestamp properties to your model?");
-
-                        if ($addFix) {
-                            try {
-                                // Modify model file to add timestamp properties
-                                $this->addTimestampProperties($modelClass);
-                                $this->line();
-                                $this->success("Timestamp properties added to model!");
-                                $this->line();
-                                $this->info("Please run the command again: php roline table:create {$modelName}");
-                                $this->line();
-                                exit(0);
-                            } catch (\Exception $addError) {
-                                // Auto-fix failed
-                                $this->line();
-                                $this->error("Failed to add timestamp properties: " . $addError->getMessage());
-                                $this->line();
-                                exit(1);
-                            }
-                        }
-                        break;
-
-                    case 'missing_primary_key':
-                        // Offer to add id primary key property
-                        $addFix = $this->confirm("Would you like me to add an 'id' primary key property to your model?");
-
-                        if ($addFix) {
-                            try {
-                                // Modify model file to add primary key property
-                                $this->addPrimaryKeyProperty($modelClass);
-                                $this->line();
-                                $this->success("Primary key property added to model!");
-                                $this->line();
-                                $this->info("Please run the command again: php roline table:create {$modelName}");
-                                $this->line();
-                                exit(0);
-                            } catch (\Exception $addError) {
-                                // Auto-fix failed
-                                $this->line();
-                                $this->error("Failed to add primary key property: " . $addError->getMessage());
-                                $this->line();
-                                exit(1);
-                            }
-                        }
-                        break;
-                }
-
-                // User declined auto-fix or unknown error type
-                exit(1);
-            }
-
-            // Non-auto-fixable validation error (manual fix required)
-            $this->error("Schema validation failed!");
-            $this->line();
-            $this->error("Error: " . $e->getMessage());
-            $this->line();
-
-            exit(1);
-
         } catch (\Exception $e) {
-            // Generic error (SQL execution failure, database connection, etc.)
             $this->line();
-            $this->error("Failed to create table!");
-            $this->line();
-            $this->error("Error: " . $e->getMessage());
-            $this->line();
-
+            $this->error("Failed to create table: " . $e->getMessage());
             exit(1);
         }
-    }
-
-    /**
-     * Add timestamp properties to model file
-     *
-     * Automatically modifies the model file to add date_created and date_modified
-     * properties with appropriate @column and @datetime annotations. Uses regex to
-     * find an appropriate insertion point (before MODEL METHODS comment or after
-     * last protected property).
-     *
-     * @param string $modelClass Fully qualified model class name
-     * @return void
-     * @throws \Exception If model file not found or insertion point can't be determined
-     */
-    private function addTimestampProperties($modelClass)
-    {
-        // Get model file path via reflection
-        $reflection = new \ReflectionClass($modelClass);
-        $filename = $reflection->getFileName();
-
-        // Validate file exists
-        if (!$filename || !file_exists($filename)) {
-            throw new \Exception("Could not find model file");
-        }
-
-        // Read current file contents
-        $content = file_get_contents($filename);
-
-        // Build timestamp property code with @column and @datetime annotations
-        $timestampCode = "\n    /**\n" .
-                        "     * @column\n" .
-                        "     * @datetime\n" .
-                        "     */\n" .
-                        "    protected \$date_created;\n\n" .
-                        "    /**\n" .
-                        "     * @column\n" .
-                        "     * @datetime\n" .
-                        "     */\n" .
-                        "    protected \$date_modified;\n";
-
-        // Try to find a good insertion point in model file
-        if (preg_match('/(\n\s*\/\/ .*MODEL METHODS.*\n)/', $content, $matches, PREG_OFFSET_CAPTURE)) {
-            // Insert before MODEL METHODS comment (ideal location)
-            $insertPos = $matches[1][1];
-            $content = substr_replace($content, $timestampCode . "\n", $insertPos, 0);
-        } else if (preg_match('/(\n\s*protected .*;\n)(?!.*\n\s*protected)/s', $content, $matches, PREG_OFFSET_CAPTURE)) {
-            // Insert after last protected property (fallback)
-            $insertPos = $matches[1][1] + strlen($matches[1][0]);
-            $content = substr_replace($content, $timestampCode, $insertPos, 0);
-        } else {
-            // No suitable insertion point found
-            throw new \Exception("Could not find suitable insertion point in model file");
-        }
-
-        // Write modified content back to file
-        file_put_contents($filename, $content);
-    }
-
-    /**
-     * Add primary key property to model file
-     *
-     * Automatically modifies the model file to add an 'id' primary key property
-     * with @column, @primary, and @autonumber annotations. Primary keys should
-     * appear first in the schema, so this method finds an appropriate insertion
-     * point near the top of the property list (after DATABASE SCHEMA comment or
-     * after $timestamps property).
-     *
-     * @param string $modelClass Fully qualified model class name
-     * @return void
-     * @throws \Exception If model file not found or insertion point can't be determined
-     */
-    private function addPrimaryKeyProperty($modelClass)
-    {
-        // Get model file path via reflection
-        $reflection = new \ReflectionClass($modelClass);
-        $filename = $reflection->getFileName();
-
-        // Validate file exists
-        if (!$filename || !file_exists($filename)) {
-            throw new \Exception("Could not find model file");
-        }
-
-        // Read current file contents
-        $content = file_get_contents($filename);
-
-        // Build primary key property code with @primary and @autonumber annotations
-        $primaryKeyCode = "\n    /**\n" .
-                         "     * @column\n" .
-                         "     * @primary\n" .
-                         "     * @autonumber\n" .
-                         "     */\n" .
-                         "    protected \$id;\n";
-
-        // Find appropriate insertion point (primary key should be first property)
-        if (preg_match('/(\n\s*\/\/ .*DATABASE SCHEMA.*\n)/', $content, $matches, PREG_OFFSET_CAPTURE)) {
-            // Insert after DATABASE SCHEMA comment (ideal location)
-            $insertPos = $matches[1][1] + strlen($matches[1][0]);
-            $content = substr_replace($content, $primaryKeyCode, $insertPos, 0);
-        } else if (preg_match('/(\n\s*protected static \$timestamps)/', $content, $matches, PREG_OFFSET_CAPTURE)) {
-            // Insert after $timestamps line (fallback)
-            $insertPos = $matches[1][1] + strlen($matches[1][0]);
-
-            // Skip to end of that line before inserting
-            $nextNewline = strpos($content, "\n", $insertPos);
-            $content = substr_replace($content, $primaryKeyCode, $nextNewline, 0);
-        } else {
-            // No suitable insertion point found
-            throw new \Exception("Could not find suitable insertion point in model file");
-        }
-
-        // Write modified content back to file
-        file_put_contents($filename, $content);
     }
 }
