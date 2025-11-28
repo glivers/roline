@@ -6,9 +6,21 @@
          colors="true"
          testdox="true">
     <testsuites>
-        <testsuite name="Roline CLI Tests">
+        <testsuite name="All">
             <directory>tests</directory>
             <exclude>tests/RolineTest.php</exclude>
+        </testsuite>
+        <testsuite name="Controller">
+            <directory>tests/Integration/Commands/Controller</directory>
+        </testsuite>
+        <testsuite name="Model">
+            <directory>tests/Integration/Commands/Model</directory>
+        </testsuite>
+        <testsuite name="View">
+            <directory>tests/Integration/Commands/View</directory>
+        </testsuite>
+        <testsuite name="Table">
+            <directory>tests/Integration/Commands/Table</directory>
         </testsuite>
     </testsuites>
     <source>
