@@ -71,6 +71,9 @@ class MySQLSchema
             );
         }
 
+        // Validate foreign key constraints before creating table
+        $this->validateForeignKeys($schema);
+
         // Generate CREATE TABLE SQL
         $sql = $this->generateCreateTableSQL($schema);
 
@@ -147,6 +150,7 @@ class MySQLSchema
         $primaryKeys = [];
         $uniqueKeys = [];
         $indexes = [];
+        $foreignKeys = [];
 
         foreach ($columns as $column) {
             // Skip dropped columns
@@ -203,6 +207,16 @@ class MySQLSchema
             if ($column['index']) {
                 $indexes[] = $column['name'];
             }
+
+            // Track foreign keys
+            if (!empty($column['foreign'])) {
+                $foreignKeys[] = [
+                    'column' => $column['name'],
+                    'references' => $column['foreign'],
+                    'on_delete' => $column['on_delete'] ?? 'RESTRICT',
+                    'on_update' => $column['on_update'] ?? 'RESTRICT',
+                ];
+            }
         }
 
         // Add primary key
@@ -218,6 +232,29 @@ class MySQLSchema
         // Add indexes
         foreach ($indexes as $key) {
             $columnDefinitions[] = "KEY `{$key}_index` (`{$key}`)";
+        }
+
+        // Add foreign keys
+        foreach ($foreignKeys as $fk) {
+            // Parse foreign key reference: "table(column)"
+            if (preg_match('/^(\w+)\((\w+)\)$/', $fk['references'], $matches)) {
+                $refTable = $matches[1];
+                $refColumn = $matches[2];
+
+                $constraintName = "fk_{$tableName}_{$fk['column']}";
+                $fkDef = "CONSTRAINT `{$constraintName}` FOREIGN KEY (`{$fk['column']}`) ";
+                $fkDef .= "REFERENCES `{$refTable}` (`{$refColumn}`)";
+
+                if (!empty($fk['on_delete'])) {
+                    $fkDef .= " ON DELETE {$fk['on_delete']}";
+                }
+
+                if (!empty($fk['on_update'])) {
+                    $fkDef .= " ON UPDATE {$fk['on_update']}";
+                }
+
+                $columnDefinitions[] = $fkDef;
+            }
         }
 
         $sql = "CREATE TABLE `{$tableName}` (\n  ";
@@ -544,6 +581,181 @@ class MySQLSchema
 
             echo "  {$col}: {$type} {$null}{$key}{$extra}\n";
         }
+    }
+
+    /**
+     * Get tables that reference a given table via foreign keys
+     *
+     * Returns an array of tables that have foreign key constraints
+     * referencing the specified table.
+     *
+     * @param string $tableName Table name to check
+     * @return array Associative array [table_name => [columns]]
+     */
+    public function getTablesReferencingTable($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "
+            SELECT
+                TABLE_NAME,
+                COLUMN_NAME,
+                CONSTRAINT_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+                AND REFERENCED_TABLE_NAME = ?
+                AND REFERENCED_TABLE_NAME IS NOT NULL
+        ";
+
+        // Use prepared statement
+        $stmt = $this->connection->prepare($sql);
+        $stmt->bind_param('s', $tableName);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $references = [];
+        while ($row = $result->fetch_assoc()) {
+            $table = $row['TABLE_NAME'];
+            if (!isset($references[$table])) {
+                $references[$table] = [];
+            }
+            $references[$table][] = $row['COLUMN_NAME'];
+        }
+
+        return $references;
+    }
+
+    /**
+     * Validate foreign key constraints before table creation
+     *
+     * Checks that all foreign key references:
+     * 1. Point to existing tables
+     * 2. Point to existing columns
+     * 3. Have matching data types (exact match required)
+     *
+     * Throws descriptive exception if validation fails.
+     *
+     * @param array $schema Parsed model schema
+     * @return void
+     * @throws \Exception If foreign key validation fails
+     */
+    private function validateForeignKeys($schema)
+    {
+        // Get database connection
+        $this->ensureConnection();
+
+        //print_r($schema); exit();
+
+        // Collect all foreign keys from schema
+        $foreignKeys = [];
+        foreach ($schema['columns'] as $columnName => $columnDef) {
+            if (!empty($columnDef['foreign'])) {
+                // Build full column type string (same as in createTableFromModel)
+                $fullType = $columnDef['type'];
+                if ($columnDef['length']) {
+                    $fullType .= "({$columnDef['length']})";
+                }
+                if ($columnDef['unsigned']) {
+                    $fullType .= " UNSIGNED";
+                }
+
+                $foreignKeys[] = [
+                    'column' => $columnDef['name'],
+                    'column_type' => $fullType,
+                    'references' => $columnDef['foreign'],
+                    'on_delete' => $columnDef['on_delete'] ?? 'RESTRICT',
+                    'on_update' => $columnDef['on_update'] ?? 'RESTRICT',
+                ];
+            }
+        }
+
+        // No foreign keys? Nothing to validate
+        if (empty($foreignKeys)) {
+            return;
+        }
+
+        // Validate each foreign key
+        foreach ($foreignKeys as $fk) {
+            // Parse foreign key reference: "table(column)"
+            if (!preg_match('/^(\w+)\((\w+)\)$/', $fk['references'], $matches)) {
+                throw new \Exception(
+                    "Invalid foreign key format for column '{$fk['column']}'.\n" .
+                    "       Expected: tablename(columnname)\n" .
+                    "       Got: {$fk['references']}"
+                );
+            }
+
+            $refTable = $matches[1];
+            $refColumn = $matches[2];
+
+            // 1. Check if referenced table exists
+            $tableCheck = $this->connection->execute("SHOW TABLES LIKE '{$refTable}'");
+            if ($tableCheck->num_rows === 0) {
+                throw new \Exception(
+                    "Foreign Key Validation Failed!\n\n" .
+                    "  Column: {$fk['column']}\n" .
+                    "  References: {$refTable}({$refColumn})\n" .
+                    "  Problem: Table '{$refTable}' does not exist\n\n" .
+                    "  Fix: Create the '{$refTable}' table first, then retry.\n" .
+                    "       Foreign keys must reference existing tables."
+                );
+            }
+
+            // 2. Check if referenced column exists
+            $columnCheck = $this->connection->execute(
+                "SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY
+                 FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                 AND TABLE_NAME = '{$refTable}'
+                 AND COLUMN_NAME = '{$refColumn}'"
+            );
+
+            if ($columnCheck->num_rows === 0) {
+                throw new \Exception(
+                    "Foreign Key Validation Failed!\n\n" .
+                    "  Column: {$fk['column']}\n" .
+                    "  References: {$refTable}({$refColumn})\n" .
+                    "  Problem: Column '{$refColumn}' does not exist in table '{$refTable}'\n\n" .
+                    "  Fix: The referenced column must exist in the target table.\n" .
+                    "       Check your @foreign annotation."
+                );
+            }
+
+            $refColumnData = $columnCheck->fetch_assoc();
+
+            // 3. Check if referenced column is indexed (required for foreign keys)
+            if (empty($refColumnData['COLUMN_KEY'])) {
+                throw new \Exception(
+                    "Foreign Key Validation Failed!\n\n" .
+                    "  Column: {$fk['column']}\n" .
+                    "  References: {$refTable}({$refColumn})\n" .
+                    "  Problem: Column '{$refTable}.{$refColumn}' is not indexed\n\n" .
+                    "  Fix: Foreign keys can only reference indexed columns.\n" .
+                    "       Add @index, @unique, or @primary to {$refTable}.{$refColumn}"
+                );
+            }
+
+            // 4. Check if column types match EXACTLY
+            $sourceType = strtoupper($fk['column_type']);
+            $targetType = strtoupper($refColumnData['COLUMN_TYPE']);
+
+            if ($sourceType !== $targetType) {
+                // Provide helpful error with type comparison
+                throw new \Exception(
+                    "Foreign Key Validation Failed!\n\n" .
+                    "  Column: {$fk['column']}\n" .
+                    "  References: {$refTable}({$refColumn})\n" .
+                    "  Problem: Data type mismatch\n\n" .
+                    "  Source column type:     {$sourceType}\n" .
+                    "  Referenced column type: {$targetType}\n\n" .
+                    "  Fix: Foreign key columns must have EXACTLY matching types.\n" .
+                    "       Change {$schema['table']}.{$fk['column']} to match {$refTable}.{$refColumn},\n" .
+                    "       or update {$refTable}.{$refColumn} to match {$schema['table']}.{$fk['column']}."
+                );
+            }
+        }
+
+        // All foreign keys validated successfully
     }
 
     /**
