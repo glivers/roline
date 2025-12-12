@@ -183,13 +183,41 @@ class ModelDropTable extends ModelCommand
             exit(0);
         }
 
+        // Create schema instance for database operations
+        $schema = new MySQLSchema();
+
+        // Check if other tables reference this one via foreign keys
+        try {
+            $dependents = $schema->getTablesReferencingTable($tableName);
+
+            if (!empty($dependents)) {
+                $this->line();
+                $this->error("Cannot drop table '{$tableName}'!");
+                $this->line();
+                $this->error("The following tables have foreign key references to it:");
+                $this->line();
+
+                foreach ($dependents as $table => $columns) {
+                    $columnList = implode(', ', $columns);
+                    $this->line("  • {$table} (column: {$columnList})");
+                }
+
+                $this->line();
+                $this->info("You must either:");
+                $this->line("  1. Drop those tables first (in correct order), OR");
+                $this->line("  2. Remove the foreign key constraints from those tables");
+                $this->line();
+                exit(1);
+            }
+        } catch (\Exception $e) {
+            // If check fails, continue anyway (better to try and get MySQL error)
+        }
+
         // Execute table drop via MySQLSchema
         try {
             $this->line();
             $this->info("Dropping table '{$tableName}'...");
 
-            // Create schema instance and execute DROP TABLE statement
-            $schema = new MySQLSchema();
             $schema->dropTable($tableName);
 
             // Table dropped successfully
