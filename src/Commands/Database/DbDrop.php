@@ -223,7 +223,7 @@ class DbDrop extends DatabaseCommand
             // Second confirmation - require typing database name
             $this->line();
             $this->info("To confirm, please type the database name: {$databaseName}");
-            $typed = $this->prompt('Database name:');
+            $typed = $this->ask('Database name:');
 
             // Validate typed database name matches
             if ($typed !== $databaseName) {
