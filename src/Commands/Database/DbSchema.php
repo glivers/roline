@@ -219,8 +219,8 @@ class DbSchema extends DatabaseCommand
      * Display schema for a single table
      *
      * Outputs formatted table structure including column definitions with data types,
-     * constraints, defaults, primary key information, and index details. Provides
-     * hierarchical indentation for readability.
+     * constraints, defaults, primary key information, foreign key relationships,
+     * and index details. Provides hierarchical indentation for readability.
      *
      * @param string $tableName Table name to display
      * @param SchemaReader $schemaReader Schema reader instance for querying
@@ -275,6 +275,33 @@ class DbSchema extends DatabaseCommand
             // Join multiple primary key columns with comma
             $pkColumns = implode(', ', $schema['primary_key']);
             $this->line("  PRIMARY KEY: {$pkColumns}");
+        }
+
+        // Display foreign key information if exists
+        if (!empty($schema['foreign_keys'])) {
+            $this->line();
+            $this->line('  FOREIGN KEYS:');
+
+            // Display each foreign key with referenced table and actions
+            foreach ($schema['foreign_keys'] as $constraintName => $fk) {
+                $fkDef = "{$fk['column']} → {$fk['referenced_table']}({$fk['referenced_column']})";
+
+                // Add ON DELETE and ON UPDATE actions
+                $actions = [];
+                if (!empty($fk['on_delete']) && $fk['on_delete'] !== 'RESTRICT') {
+                    $actions[] = "ON DELETE {$fk['on_delete']}";
+                }
+                if (!empty($fk['on_update']) && $fk['on_update'] !== 'RESTRICT') {
+                    $actions[] = "ON UPDATE {$fk['on_update']}";
+                }
+
+                if (!empty($actions)) {
+                    $fkDef .= ' [' . implode(', ', $actions) . ']';
+                }
+
+                // Display foreign key definition with extra indentation
+                $this->line("    {$constraintName}: {$fkDef}");
+            }
         }
 
         // Display index information if exists
