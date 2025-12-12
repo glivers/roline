@@ -26,6 +26,11 @@ use Roline\Exceptions\Exceptions;
  *   @drop - Mark for deletion (table:update)
  *   @rename old_name - Rename from old_name (table:update)
  *
+ * Foreign Keys:
+ *   @foreign table(column) - Create foreign key constraint
+ *   @ondelete ACTION - ON DELETE action (CASCADE, RESTRICT, SET NULL, NO ACTION)
+ *   @onupdate ACTION - ON UPDATE action (CASCADE, RESTRICT, SET NULL, NO ACTION)
+ *
  * Usage:
  *   $parser = new ModelParser();
  *   $schema = $parser->parseModelClass('Models\\User');
@@ -465,6 +470,26 @@ class ModelParser
 
         if ($this->hasAnnotation($docComment, 'index')) {
             $column['index'] = true;
+        }
+
+        // Parse foreign key constraint
+        if ($this->hasAnnotation($docComment, 'foreign')) {
+            $foreign = $this->getAnnotationValue($docComment, 'foreign');
+            if ($foreign) {
+                $column['foreign'] = $foreign; // Format: "table(column)"
+            }
+        }
+
+        // Parse ON DELETE action
+        if ($this->hasAnnotation($docComment, 'ondelete')) {
+            $onDelete = strtoupper($this->getAnnotationValue($docComment, 'ondelete'));
+            $column['on_delete'] = $onDelete; // CASCADE, SET NULL, RESTRICT, NO ACTION
+        }
+
+        // Parse ON UPDATE action
+        if ($this->hasAnnotation($docComment, 'onupdate')) {
+            $onUpdate = strtoupper($this->getAnnotationValue($docComment, 'onupdate'));
+            $column['on_update'] = $onUpdate; // CASCADE, SET NULL, RESTRICT, NO ACTION
         }
 
         // Get default value
