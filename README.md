@@ -273,6 +273,86 @@ protected $published_at;
 - `@index` - Add index for faster queries
 - `@drop` - Mark column for deletion (use with `model:update-table`)
 - `@rename old_name` - Rename from old column name (use with `model:update-table`)
+- `@foreign table(column)` - Create foreign key constraint
+- `@ondelete ACTION` - ON DELETE action (CASCADE, RESTRICT, SET NULL, NO ACTION)
+- `@onupdate ACTION` - ON UPDATE action (CASCADE, RESTRICT, SET NULL, NO ACTION)
+
+**Foreign Key Relationships:**
+
+Define relationships between tables using foreign key constraints. Foreign keys enforce referential integrity and define cascading actions.
+
+**Basic Example:**
+```php
+/**
+ * Foreign key to users table
+ * @column
+ * @int 11
+ * @unsigned
+ * @index
+ * @foreign users(id)
+ * @ondelete CASCADE
+ * @onupdate CASCADE
+ */
+protected $user_id;
+```
+
+**Important:** Foreign key column **must** have the exact same data type as the referenced column.
+
+**Referential Actions Explained:**
+
+**ON DELETE** - What happens when parent record is deleted:
+- `CASCADE` - Automatically delete all child records (e.g., delete order → delete order items)
+- `RESTRICT` - Prevent deletion if child records exist (must delete children first)
+- `SET NULL` - Set foreign key to NULL in child records (requires `@nullable`)
+- `NO ACTION` - Same as RESTRICT in MySQL
+
+**ON UPDATE** - What happens when parent's primary key is updated:
+- `CASCADE` - Automatically update foreign keys in child records (recommended)
+- `RESTRICT` - Prevent update if child records exist
+- `SET NULL` - Set foreign key to NULL in child records
+- `NO ACTION` - Same as RESTRICT in MySQL
+
+**Real-World Examples:**
+
+E-commerce (delete order → delete order items):
+```php
+/**
+ * @column
+ * @int 11
+ * @unsigned
+ * @foreign orders(id)
+ * @ondelete CASCADE
+ * @onupdate CASCADE
+ */
+protected $order_id;
+```
+
+Blog (delete user → posts become "anonymous"):
+```php
+/**
+ * @column
+ * @int 11
+ * @unsigned
+ * @nullable
+ * @foreign users(id)
+ * @ondelete SET NULL
+ * @onupdate CASCADE
+ */
+protected $author_id;
+```
+
+Inventory (prevent deleting products with stock):
+```php
+/**
+ * @column
+ * @int 11
+ * @unsigned
+ * @foreign products(id)
+ * @ondelete RESTRICT
+ * @onupdate CASCADE
+ */
+protected $product_id;
+```
 
 #### Create Table from Model
 
