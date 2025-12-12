@@ -107,6 +107,43 @@ class SchemaDiffer
             }
         }
 
+        // Detect foreign key changes
+        $oldForeignKeys = $oldSchema['foreign_keys'] ?? [];
+        $newForeignKeys = $newSchema['foreign_keys'] ?? [];
+
+        // Find added foreign keys
+        foreach ($newForeignKeys as $constraintName => $fk) {
+            if (!isset($oldForeignKeys[$constraintName])) {
+                $upSql[] = $this->generateAddForeignKey($tableName, $constraintName, $fk);
+                $downSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+            }
+        }
+
+        // Find removed foreign keys
+        foreach ($oldForeignKeys as $constraintName => $fk) {
+            if (!isset($newForeignKeys[$constraintName])) {
+                $upSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+                $downSql[] = $this->generateAddForeignKey($tableName, $constraintName, $fk);
+            }
+        }
+
+        // Find modified foreign keys (drop old, add new)
+        foreach ($newForeignKeys as $constraintName => $newFk) {
+            if (isset($oldForeignKeys[$constraintName])) {
+                $oldFk = $oldForeignKeys[$constraintName];
+                if ($this->foreignKeyChanged($oldFk, $newFk)) {
+                    // Drop old constraint
+                    $upSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+                    // Add new constraint
+                    $upSql[] = $this->generateAddForeignKey($tableName, $constraintName, $newFk);
+
+                    // Reverse for down migration
+                    $downSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+                    $downSql[] = $this->generateAddForeignKey($tableName, $constraintName, $oldFk);
+                }
+            }
+        }
+
         return ['up' => $upSql, 'down' => $downSql];
     }
 
@@ -136,6 +173,7 @@ class SchemaDiffer
     {
         $columns = $schema['columns'] ?? [];
         $primaryKey = $schema['primary_key'] ?? null;
+        $foreignKeys = $schema['foreign_keys'] ?? [];
         $engine = $schema['engine'] ?? 'InnoDB';
         $charset = $schema['charset'] ?? 'utf8mb4';
 
@@ -150,6 +188,22 @@ class SchemaDiffer
         if ($primaryKey) {
             $pkColumns = implode('`, `', $primaryKey);
             $sql .= ",\n    PRIMARY KEY (`{$pkColumns}`)";
+        }
+
+        // Add foreign key constraints
+        if (!empty($foreignKeys)) {
+            foreach ($foreignKeys as $constraintName => $fk) {
+                $sql .= ",\n    CONSTRAINT `{$constraintName}` FOREIGN KEY (`{$fk['column']}`) ";
+                $sql .= "REFERENCES `{$fk['referenced_table']}` (`{$fk['referenced_column']}`)";
+
+                if (!empty($fk['on_delete'])) {
+                    $sql .= " ON DELETE {$fk['on_delete']}";
+                }
+
+                if (!empty($fk['on_update'])) {
+                    $sql .= " ON UPDATE {$fk['on_update']}";
+                }
+            }
         }
 
         $sql .= "\n) ENGINE={$engine} DEFAULT CHARSET={$charset};";
@@ -237,5 +291,60 @@ class SchemaDiffer
         }
 
         return $sql;
+    }
+
+    /**
+     * Check if foreign key definition changed
+     *
+     * @param array $oldFk Old foreign key definition
+     * @param array $newFk New foreign key definition
+     * @return bool True if changed
+     */
+    protected function foreignKeyChanged($oldFk, $newFk)
+    {
+        return $oldFk['column'] !== $newFk['column']
+            || $oldFk['referenced_table'] !== $newFk['referenced_table']
+            || $oldFk['referenced_column'] !== $newFk['referenced_column']
+            || $oldFk['on_delete'] !== $newFk['on_delete']
+            || $oldFk['on_update'] !== $newFk['on_update'];
+    }
+
+    /**
+     * Generate ADD CONSTRAINT (foreign key) SQL
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @param array $fk Foreign key definition
+     * @return string SQL statement
+     */
+    protected function generateAddForeignKey($tableName, $constraintName, $fk)
+    {
+        $sql = "ALTER TABLE `{$tableName}` ADD CONSTRAINT `{$constraintName}` ";
+        $sql .= "FOREIGN KEY (`{$fk['column']}`) ";
+        $sql .= "REFERENCES `{$fk['referenced_table']}` (`{$fk['referenced_column']}`)";
+
+        if (!empty($fk['on_delete'])) {
+            $sql .= " ON DELETE {$fk['on_delete']}";
+        }
+
+        if (!empty($fk['on_update'])) {
+            $sql .= " ON UPDATE {$fk['on_update']}";
+        }
+
+        $sql .= ";";
+
+        return $sql;
+    }
+
+    /**
+     * Generate DROP CONSTRAINT (foreign key) SQL
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @return string SQL statement
+     */
+    protected function generateDropForeignKey($tableName, $constraintName)
+    {
+        return "ALTER TABLE `{$tableName}` DROP FOREIGN KEY `{$constraintName}`;";
     }
 }
