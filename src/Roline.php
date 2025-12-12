@@ -233,7 +233,9 @@ class Roline
             'db:seed'             => Commands\Database\DbSeed::class,
             'db:schema'           => Commands\Database\DbSchema::class,
             'db:export'           => Commands\Database\DbExport::class,
+            'db:import'           => Commands\Database\DbImport::class,
             'db:drop'             => Commands\Database\DbDrop::class,
+            'db:empty'            => Commands\Database\DbEmpty::class,
 
             // Cleanup commands - Maintenance and cache clearing
             'cleanup:cache'       => Commands\Cleanup\CleanupCache::class,
