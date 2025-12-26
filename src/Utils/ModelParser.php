@@ -173,6 +173,8 @@ class ModelParser
             'columns' => $columns,
             'timestamps' => $timestampsEnabled,
             'class' => $modelClass,
+            'composite_indexes' => $this->parseCompositeIndices($reflection),
+            'simple_indexes' => $this->parseSimpleIndices($columns),
         ];
 
         // Validate schema before returning
@@ -607,5 +609,94 @@ class ModelParser
         }
 
         return null;
+    }
+
+    /**
+     * Parse class docblock for composite indices
+     *
+     * Supports two formats:
+     *   @composite (col1, col2, col3)                 - Auto-generated name
+     *   @composite idx_custom_name (col1, col2, col3) - Custom name
+     *
+     * Auto-generated names use pattern: idx_{col1}_{col2}_{col3}
+     *
+     * @param \ReflectionClass $reflection Class reflection
+     * @return array Composite indices ['index_name' => ['col1', 'col2', 'col3']]
+     */
+    private function parseCompositeIndices($reflection)
+    {
+        $docComment = $reflection->getDocComment();
+        if (!$docComment) {
+            return [];
+        }
+
+        $composites = [];
+
+        // Match: @composite optional_name (col1, col2, col3)
+        // Group 1: optional index name (if provided)
+        // Group 2: column list inside parentheses
+        $pattern = '/@composite\s+(?:(\w+)\s+)?\(([^)]+)\)/';
+
+        if (preg_match_all($pattern, $docComment, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $indexName = trim($match[1]) ?: null;  // null if not provided
+                $columnList = trim($match[2]);
+                $columns = array_map('trim', explode(',', $columnList));
+
+                // Auto-generate index name if not provided
+                if (!$indexName) {
+                    $indexName = 'idx_' . implode('_', $columns);
+                }
+
+                $composites[$indexName] = $columns;
+            }
+        }
+
+        return $composites;
+    }
+
+    /**
+     * Parse @index annotations from property docblocks
+     *
+     * Extracts simple single-column indexes defined with @index annotation.
+     *
+     * Supports two formats:
+     *   @index                    - Auto-generated name (column_name_index)
+     *   @index index_custom_name  - Custom index name
+     *
+     * Also detects @unique which creates a unique index.
+     *
+     * @param array $columns Parsed column definitions
+     * @return array Simple indexes ['index_name' => ['column' => 'col_name', 'unique' => bool]]
+     */
+    private function parseSimpleIndices($columns)
+    {
+        $indexes = [];
+
+        // Note: $columns is a numeric array, not keyed by column name
+        foreach ($columns as $columnDef) {
+            // ONLY handle @index annotations
+            // @unique is a CONSTRAINT, not an index to manage!
+            $hasIndex = isset($columnDef['index']) && $columnDef['index'];
+
+            // Skip if no @index annotation
+            if (!$hasIndex) {
+                continue;
+            }
+
+            // Get actual column name from definition
+            $columnName = $columnDef['name'];
+
+            // Generate index name: column_name_index
+            $indexName = $columnName . '_index';
+
+            // Store index definition
+            $indexes[$indexName] = [
+                'column' => $columnName,
+                'unique' => false,  // @index creates regular index, not unique
+            ];
+        }
+
+        return $indexes;
     }
 }
