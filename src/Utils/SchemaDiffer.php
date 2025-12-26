@@ -144,6 +144,43 @@ class SchemaDiffer
             }
         }
 
+        // Detect index changes (both simple and composite)
+        $oldIndexes = $oldSchema['indexes'] ?? [];
+        $newIndexes = $newSchema['indexes'] ?? [];
+
+        // Find added indexes
+        foreach ($newIndexes as $indexName => $newIdx) {
+            if (!isset($oldIndexes[$indexName])) {
+                $upSql[] = $this->generateAddIndex($tableName, $indexName, $newIdx);
+                $downSql[] = $this->generateDropIndex($tableName, $indexName);
+            }
+        }
+
+        // Find removed indexes
+        foreach ($oldIndexes as $indexName => $oldIdx) {
+            if (!isset($newIndexes[$indexName])) {
+                $upSql[] = $this->generateDropIndex($tableName, $indexName);
+                $downSql[] = $this->generateAddIndex($tableName, $indexName, $oldIdx);
+            }
+        }
+
+        // Find modified indexes (drop old, add new)
+        foreach ($newIndexes as $indexName => $newIdx) {
+            if (isset($oldIndexes[$indexName])) {
+                $oldIdx = $oldIndexes[$indexName];
+                if ($this->indexChanged($oldIdx, $newIdx)) {
+                    // Drop old index
+                    $upSql[] = $this->generateDropIndex($tableName, $indexName);
+                    // Add new index
+                    $upSql[] = $this->generateAddIndex($tableName, $indexName, $newIdx);
+
+                    // Reverse for down migration
+                    $downSql[] = $this->generateDropIndex($tableName, $indexName);
+                    $downSql[] = $this->generateAddIndex($tableName, $indexName, $oldIdx);
+                }
+            }
+        }
+
         return ['up' => $upSql, 'down' => $downSql];
     }
 
@@ -173,6 +210,7 @@ class SchemaDiffer
     {
         $columns = $schema['columns'] ?? [];
         $primaryKey = $schema['primary_key'] ?? null;
+        $indexes = $schema['indexes'] ?? [];
         $foreignKeys = $schema['foreign_keys'] ?? [];
         $engine = $schema['engine'] ?? 'InnoDB';
         $charset = $schema['charset'] ?? 'utf8mb4';
@@ -188,6 +226,26 @@ class SchemaDiffer
         if ($primaryKey) {
             $pkColumns = implode('`, `', $primaryKey);
             $sql .= ",\n    PRIMARY KEY (`{$pkColumns}`)";
+        }
+
+        // Add indexes (both simple and composite)
+        if (!empty($indexes)) {
+            foreach ($indexes as $indexName => $indexDef) {
+                // Skip primary key (already added above)
+                if ($indexName === 'PRIMARY') {
+                    continue;
+                }
+
+                // Build column list for index
+                $indexColumns = '`' . implode('`, `', $indexDef['columns']) . '`';
+
+                // Add UNIQUE or regular KEY
+                if ($indexDef['unique'] ?? false) {
+                    $sql .= ",\n    UNIQUE KEY `{$indexName}` ({$indexColumns})";
+                } else {
+                    $sql .= ",\n    KEY `{$indexName}` ({$indexColumns})";
+                }
+            }
         }
 
         // Add foreign key constraints
@@ -346,5 +404,58 @@ class SchemaDiffer
     protected function generateDropForeignKey($tableName, $constraintName)
     {
         return "ALTER TABLE `{$tableName}` DROP FOREIGN KEY `{$constraintName}`;";
+    }
+
+    /**
+     * Check if index definition changed
+     *
+     * @param array $oldIdx Old index definition
+     * @param array $newIdx New index definition
+     * @return bool True if changed
+     */
+    protected function indexChanged($oldIdx, $newIdx)
+    {
+        // Check if columns changed
+        if ($oldIdx['columns'] !== $newIdx['columns']) {
+            return true;
+        }
+
+        // Check if unique status changed
+        if (($oldIdx['unique'] ?? false) !== ($newIdx['unique'] ?? false)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Generate ADD INDEX SQL
+     *
+     * @param string $tableName Table name
+     * @param string $indexName Index name
+     * @param array $indexDef Index definition
+     * @return string SQL statement
+     */
+    protected function generateAddIndex($tableName, $indexName, $indexDef)
+    {
+        $columnList = '`' . implode('`, `', $indexDef['columns']) . '`';
+
+        if ($indexDef['unique'] ?? false) {
+            return "ALTER TABLE `{$tableName}` ADD UNIQUE INDEX `{$indexName}` ({$columnList});";
+        } else {
+            return "ALTER TABLE `{$tableName}` ADD INDEX `{$indexName}` ({$columnList});";
+        }
+    }
+
+    /**
+     * Generate DROP INDEX SQL
+     *
+     * @param string $tableName Table name
+     * @param string $indexName Index name
+     * @return string SQL statement
+     */
+    protected function generateDropIndex($tableName, $indexName)
+    {
+        return "ALTER TABLE `{$tableName}` DROP INDEX `{$indexName}`;";
     }
 }
