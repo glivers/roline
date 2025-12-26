@@ -106,7 +106,7 @@ class MySQLSchema
      * @return bool True on success
      * @throws \Exception
      */
-    public function updateTableFromModel($modelClass)
+    public function updateTableFromModel($modelClass, $confirmationCallback = null)
     {
         // Parse model class
         $schema = $this->parser->parseModelClass($modelClass);
@@ -114,22 +114,117 @@ class MySQLSchema
         // Get existing table columns
         $existingColumns = $this->getExistingColumns($schema['table']);
 
-        // Generate ALTER TABLE statements
-        $statements = $this->generateAlterTableSQL($schema, $existingColumns);
+        // Generate ALTER TABLE statements with drop and rename info
+        $result = $this->generateAlterTableSQL($schema, $existingColumns);
+        $statements = $result['statements'];
+        $dropColumns = $result['drop_columns'];
+        $renameColumns = $result['rename_columns'];
 
         if (empty($statements)) {
+            echo "\n";
+            echo "✓ No changes needed - table is up to date!\n";
             return true; // No changes needed
+        }
+
+        // Preview changes before executing
+        echo "\n";
+        echo "Planned changes:\n";
+        foreach ($statements as $i => $stmt) {
+            echo "  " . ($i + 1) . ". " . substr($stmt, 0, 100);
+            if (strlen($stmt) > 100) {
+                echo "...";
+            }
+            echo "\n";
+        }
+        echo "\n";
+
+        // Check for slow operations and warn user
+        $rowCount = $this->getRowCount($schema['table']);
+        $hasSlowOps = false;
+
+        foreach ($statements as $stmt) {
+            // Warn about adding indexes on large tables
+            if (stripos($stmt, 'ADD INDEX') !== false && $rowCount > 100000) {
+                $hasSlowOps = true;
+                $estimatedSeconds = ceil($rowCount / 50000); // ~50K rows per second
+                $estimatedMinutes = ceil($estimatedSeconds / 60);
+
+                echo "⚠ WARNING: Adding index to large table (" . number_format($rowCount) . " rows)\n";
+                echo "           This may take " . $estimatedMinutes . "-" . ($estimatedMinutes * 3) . " minutes.\n";
+                echo "           DO NOT INTERRUPT - let it complete!\n\n";
+                break; // Only show warning once
+            }
+
+            // Warn about modifying columns on large tables
+            if (stripos($stmt, 'MODIFY COLUMN') !== false && $rowCount > 100000) {
+                $hasSlowOps = true;
+                echo "⚠ WARNING: Modifying column on large table (" . number_format($rowCount) . " rows)\n";
+                echo "           This may take several minutes.\n\n";
+                break; // Only show warning once
+            }
+
+            // Warn about dropping indexes on large tables (can require table rebuild)
+            if (stripos($stmt, 'DROP INDEX') !== false && $rowCount > 100000) {
+                $hasSlowOps = true;
+                $estimatedSeconds = ceil($rowCount / 50000); // ~50K rows per second
+                $estimatedMinutes = ceil($estimatedSeconds / 60);
+
+                echo "⚠ WARNING: Dropping index on large table (" . number_format($rowCount) . " rows)\n";
+                echo "           This may take " . $estimatedMinutes . "-" . ($estimatedMinutes * 3) . " minutes.\n";
+                echo "           DO NOT INTERRUPT - let it complete!\n\n";
+                break; // Only show warning once
+            }
+        }
+
+        // If there are columns to drop or rename, ask for confirmation
+        if ((!empty($dropColumns) || !empty($renameColumns)) && is_callable($confirmationCallback)) {
+            $confirmed = $confirmationCallback($dropColumns, $renameColumns);
+            if (!$confirmed) {
+                // User said no - abort all changes
+                echo "\n";
+                echo "✗ Aborted - no changes made.\n";
+                return false; // Return false to indicate abort
+            }
         }
 
         // Get database connection
         $this->ensureConnection();
 
-        // Execute each ALTER statement
-        foreach ($statements as $sql) {
+        // Execute each ALTER statement with progress display
+        $total = count($statements);
+        echo "Executing " . $total . " statement" . ($total > 1 ? 's' : '') . "...\n\n";
+
+        foreach ($statements as $i => $sql) {
+            $num = $i + 1;
+
+            // Show what's being executed
+            echo "[$num/$total] " . substr($sql, 0, 80);
+            if (strlen($sql) > 80) {
+                echo "...";
+            }
+            echo "\n";
+
+            // Execute and time it
+            $start = microtime(true);
             $result = $this->connection->execute($sql);
+            $elapsed = microtime(true) - $start;
+
             if (!$result) {
                 throw new \Exception("Failed to update table '{$schema['table']}': " . $this->connection->lastError());
             }
+
+            // Show completion time
+            if ($elapsed > 1) {
+                echo "        ✓ Completed in " . round($elapsed, 2) . "s";
+                if ($elapsed > 60) {
+                    echo " (" . round($elapsed / 60, 1) . " min)";
+                }
+                echo "\n";
+            } else {
+                echo "        ✓ Completed in " . round($elapsed * 1000, 0) . "ms\n";
+            }
+
+            echo "\n";
         }
 
         return true;
@@ -234,6 +329,14 @@ class MySQLSchema
             $columnDefinitions[] = "KEY `{$key}_index` (`{$key}`)";
         }
 
+        // Add composite indexes
+        if (!empty($schema['composite_indexes'])) {
+            foreach ($schema['composite_indexes'] as $indexName => $columns) {
+                $columnList = '`' . implode('`, `', $columns) . '`';
+                $columnDefinitions[] = "KEY `{$indexName}` ({$columnList})";
+            }
+        }
+
         // Add foreign keys
         foreach ($foreignKeys as $fk) {
             // Parse foreign key reference: "table(column)"
@@ -269,22 +372,59 @@ class MySQLSchema
      *
      * @param array $schema New schema definition
      * @param array $existingColumns Existing columns from database
-     * @return array Array of ALTER TABLE statements
+     * @return array Array with 'statements' and 'drop_columns' keys
      */
     public function generateAlterTableSQL($schema, $existingColumns)
     {
         $tableName = $schema['table'];
         $statements = [];
+        $dropColumns = [];
+        $renameColumns = [];
 
         $newColumns = [];
         foreach ($schema['columns'] as $column) {
             $newColumns[$column['name']] = $column;
         }
 
-        // Handle drops
+        // Handle drops - columns with @drop annotation
         foreach ($schema['columns'] as $column) {
             if ($column['drop']) {
+                $dropColumns[] = [
+                    'name' => $column['name'],
+                    'reason' => '@drop annotation'
+                ];
                 $statements[] = "ALTER TABLE `{$tableName}` DROP COLUMN `{$column['name']}`;";
+            }
+        }
+
+        // Handle orphaned columns - exist in DB but not in model
+        foreach ($existingColumns as $columnName => $columnInfo) {
+            if (!isset($newColumns[$columnName])) {
+                // Check if already marked for drop via @drop annotation
+                $alreadyMarked = false;
+                foreach ($dropColumns as $dc) {
+                    if ($dc['name'] === $columnName) {
+                        $alreadyMarked = true;
+                        break;
+                    }
+                }
+
+                // Check if this column is being renamed (not orphaned)
+                $isBeingRenamed = false;
+                foreach ($schema['columns'] as $column) {
+                    if (!empty($column['rename']) && $column['rename'] === $columnName) {
+                        $isBeingRenamed = true;
+                        break;
+                    }
+                }
+
+                if (!$alreadyMarked && !$isBeingRenamed) {
+                    $dropColumns[] = [
+                        'name' => $columnName,
+                        'reason' => 'not in model (orphaned)'
+                    ];
+                    $statements[] = "ALTER TABLE `{$tableName}` DROP COLUMN `{$columnName}`;";
+                }
             }
         }
 
@@ -293,6 +433,10 @@ class MySQLSchema
             if ($column['rename']) {
                 $oldName = $column['rename'];
                 $newName = $column['name'];
+                $renameColumns[] = [
+                    'old_name' => $oldName,
+                    'new_name' => $newName
+                ];
                 $columnDef = $this->getColumnDefinition($column);
                 $statements[] = "ALTER TABLE `{$tableName}` CHANGE `{$oldName}` `{$newName}` {$columnDef};";
             }
@@ -309,14 +453,235 @@ class MySQLSchema
                 $columnDef = $this->getColumnDefinition($column);
                 $statements[] = "ALTER TABLE `{$tableName}` ADD COLUMN `{$name}` {$columnDef};";
             } else {
-                // Column exists - check if modified
-                // For now, always regenerate (smart diffing can be added later)
-                $columnDef = $this->getColumnDefinition($column);
-                $statements[] = "ALTER TABLE `{$tableName}` MODIFY COLUMN `{$name}` {$columnDef};";
+                // Column exists - check if ACTUALLY modified (smart diffing)
+                if ($this->columnDefinitionChanged($existingColumns[$name], $column)) {
+                    $columnDef = $this->getColumnDefinition($column);
+                    $statements[] = "ALTER TABLE `{$tableName}` MODIFY COLUMN `{$name}` {$columnDef};";
+                }
+                // Otherwise skip - no change needed!
             }
         }
 
-        return $statements;
+        // Handle foreign keys
+        $existingForeignKeys = $this->getExistingForeignKeys($tableName);
+
+        // Collect model foreign keys
+        $modelForeignKeys = [];
+        foreach ($schema['columns'] as $column) {
+            if (!empty($column['foreign']) && !$column['drop']) {
+                $constraintName = "fk_{$tableName}_{$column['name']}";
+                $modelForeignKeys[$constraintName] = [
+                    'column' => $column['name'],
+                    'references' => $column['foreign'],
+                    'on_delete' => $column['on_delete'] ?? 'RESTRICT',
+                    'on_update' => $column['on_update'] ?? 'RESTRICT',
+                ];
+            }
+        }
+
+        // Drop foreign keys that exist in DB but not in model, OR have changed
+        foreach ($existingForeignKeys as $constraintName => $fkInfo) {
+            $shouldDrop = false;
+
+            if (!isset($modelForeignKeys[$constraintName])) {
+                // FK exists in DB but not in model - drop it
+                $shouldDrop = true;
+            } elseif ($fkInfo['references'] !== $modelForeignKeys[$constraintName]['references']) {
+                // FK exists in both but references changed - drop and will re-add below
+                $shouldDrop = true;
+            }
+
+            if ($shouldDrop) {
+                $statements[] = "ALTER TABLE `{$tableName}` DROP FOREIGN KEY `{$constraintName}`;";
+            }
+        }
+
+        // Add foreign keys that exist in model but not in DB, OR have changed
+        foreach ($modelForeignKeys as $constraintName => $fk) {
+            $shouldAdd = false;
+
+            if (!isset($existingForeignKeys[$constraintName])) {
+                // FK exists in model but not in DB - add it
+                $shouldAdd = true;
+            } elseif ($existingForeignKeys[$constraintName]['references'] !== $fk['references']) {
+                // FK exists in both but references changed - re-add it (already dropped above)
+                $shouldAdd = true;
+            }
+
+            if ($shouldAdd) {
+                // Parse foreign key reference: "table(column)"
+                if (preg_match('/^(\w+)\((\w+)\)$/', $fk['references'], $matches)) {
+                    $refTable = $matches[1];
+                    $refColumn = $matches[2];
+
+                    $fkDef = "ALTER TABLE `{$tableName}` ADD CONSTRAINT `{$constraintName}` ";
+                    $fkDef .= "FOREIGN KEY (`{$fk['column']}`) REFERENCES `{$refTable}` (`{$refColumn}`)";
+
+                    if (!empty($fk['on_delete'])) {
+                        $fkDef .= " ON DELETE {$fk['on_delete']}";
+                    }
+
+                    if (!empty($fk['on_update'])) {
+                        $fkDef .= " ON UPDATE {$fk['on_update']}";
+                    }
+
+                    $statements[] = $fkDef . ";";
+                }
+            }
+        }
+
+        // Handle composite indexes
+        $existingCompositeIndexes = $this->getExistingCompositeIndexes($tableName);
+        $modelCompositeIndexes = $schema['composite_indexes'] ?? [];
+
+        // Drop composite indexes that exist in DB but not in model, or have changed
+        foreach ($existingCompositeIndexes as $indexName => $indexInfo) {
+            $shouldDrop = false;
+
+            if (!isset($modelCompositeIndexes[$indexName])) {
+                // Index exists in DB but not in model - drop it
+                $shouldDrop = true;
+            } elseif ($indexInfo['columns'] !== $modelCompositeIndexes[$indexName]) {
+                // Index exists but columns changed - drop and re-add
+                $shouldDrop = true;
+            }
+
+            if ($shouldDrop) {
+                $statements[] = "ALTER TABLE `{$tableName}` DROP INDEX `{$indexName}`;";
+            }
+        }
+
+        // Add composite indexes that exist in model but not in DB, or have changed
+        foreach ($modelCompositeIndexes as $indexName => $columns) {
+            $shouldAdd = false;
+
+            if (!isset($existingCompositeIndexes[$indexName])) {
+                // Index exists in model but not in DB - add it
+                $shouldAdd = true;
+            } elseif ($existingCompositeIndexes[$indexName]['columns'] !== $columns) {
+                // Index exists but columns changed - re-add it (already dropped above)
+                $shouldAdd = true;
+            }
+
+            if ($shouldAdd) {
+                $columnList = '`' . implode('`, `', $columns) . '`';
+                $statements[] = "ALTER TABLE `{$tableName}` ADD INDEX `{$indexName}` ({$columnList});";
+            }
+        }
+
+        // Handle simple (single-column) indexes
+        $existingSimpleIndexes = $this->getExistingSimpleIndexes($tableName);
+        $modelSimpleIndexes = $schema['simple_indexes'] ?? [];
+
+        // Drop simple indexes that exist in DB but not in model, or have changed
+        foreach ($existingSimpleIndexes as $indexName => $indexInfo) {
+            $shouldDrop = false;
+
+            if (!isset($modelSimpleIndexes[$indexName])) {
+                // Index exists in DB but not in model - drop it
+                $shouldDrop = true;
+            } elseif ($indexInfo['column'] !== $modelSimpleIndexes[$indexName]['column']
+                   || $indexInfo['unique'] !== $modelSimpleIndexes[$indexName]['unique']) {
+                // Index exists but definition changed - drop and re-add
+                $shouldDrop = true;
+            }
+
+            if ($shouldDrop) {
+                $statements[] = "ALTER TABLE `{$tableName}` DROP INDEX `{$indexName}`;";
+            }
+        }
+
+        // Add simple indexes that exist in model but not in DB, or have changed
+        foreach ($modelSimpleIndexes as $indexName => $indexDef) {
+            $shouldAdd = false;
+
+            if (!isset($existingSimpleIndexes[$indexName])) {
+                // Index exists in model but not in DB - add it
+                $shouldAdd = true;
+            } elseif ($existingSimpleIndexes[$indexName]['column'] !== $indexDef['column']
+                   || $existingSimpleIndexes[$indexName]['unique'] !== $indexDef['unique']) {
+                // Index exists but definition changed - re-add it (already dropped above)
+                $shouldAdd = true;
+            }
+
+            if ($shouldAdd) {
+                $column = '`' . $indexDef['column'] . '`';
+                if ($indexDef['unique']) {
+                    $statements[] = "ALTER TABLE `{$tableName}` ADD UNIQUE INDEX `{$indexName}` ({$column});";
+                } else {
+                    $statements[] = "ALTER TABLE `{$tableName}` ADD INDEX `{$indexName}` ({$column});";
+                }
+            }
+        }
+
+        return [
+            'statements' => $statements,
+            'drop_columns' => $dropColumns,
+            'rename_columns' => $renameColumns
+        ];
+    }
+
+    /**
+     * Check if column definition has changed between DB and model
+     *
+     * Compares existing database column with model annotation to determine
+     * if a MODIFY COLUMN statement is needed. Normalizes both definitions
+     * for accurate comparison.
+     *
+     * @param array $dbColumn Column info from SHOW COLUMNS (database)
+     * @param array $modelColumn Column definition from model annotations
+     * @return bool True if column needs to be modified
+     */
+    private function columnDefinitionChanged($dbColumn, $modelColumn)
+    {
+        // Build what the column definition SHOULD be from model
+        $newDef = $this->getColumnDefinition($modelColumn);
+
+        // Build what the column definition CURRENTLY is from database
+        $currentType = strtoupper($dbColumn['Type']);
+        $currentNull = $dbColumn['Null'] === 'YES' ? ' NULL' : ' NOT NULL';
+        $currentDefault = '';
+        $currentExtra = '';
+
+        // Handle default values
+        if ($dbColumn['Default'] !== null) {
+            if (in_array(strtoupper($dbColumn['Default']), ['CURRENT_TIMESTAMP', 'NULL'])) {
+                $currentDefault = " DEFAULT {$dbColumn['Default']}";
+            } else {
+                $currentDefault = " DEFAULT '" . addslashes($dbColumn['Default']) . "'";
+            }
+        }
+
+        // Handle extra (AUTO_INCREMENT, etc)
+        if (!empty($dbColumn['Extra'])) {
+            $currentExtra = ' ' . strtoupper($dbColumn['Extra']);
+        }
+
+        $currentDef = $currentType . $currentNull . $currentDefault . $currentExtra;
+
+        // Normalize both for comparison (remove extra whitespace, make uppercase)
+        $currentDef = preg_replace('/\s+/', ' ', strtoupper(trim($currentDef)));
+        $newDef = preg_replace('/\s+/', ' ', strtoupper(trim($newDef)));
+
+        // Remove spaces after commas in ENUM/SET (MySQL doesn't include them)
+        $currentDef = preg_replace('/,\s+/', ',', $currentDef);
+        $newDef = preg_replace('/,\s+/', ',', $newDef);
+
+        // JSON type: MySQL reports just "JSON" but model generates "JSON NULL"
+        // Only compare NULL-ability, skip if both are JSON with same NULL-ability
+        if ($modelColumn['type'] === 'JSON') {
+            $currentIsJson = strpos($currentType, 'JSON') === 0;
+            if ($currentIsJson) {
+                // Both are JSON - only check if NULL-ability changed
+                $currentIsNullable = $dbColumn['Null'] === 'YES';
+                $newIsNullable = $modelColumn['nullable'];
+                return $currentIsNullable !== $newIsNullable;
+            }
+            // DB is not JSON but model is - needs modification
+        }
+
+        // Compare - if different, modification is needed
+        return $currentDef !== $newDef;
     }
 
     /**
@@ -390,6 +755,43 @@ class MySQLSchema
         }
 
         return $columns;
+    }
+
+    /**
+     * Get existing foreign keys from database table
+     *
+     * @param string $tableName Table name
+     * @return array Associative array of constraint names => FK info
+     */
+    private function getExistingForeignKeys($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT
+                    CONSTRAINT_NAME,
+                    COLUMN_NAME,
+                    REFERENCED_TABLE_NAME,
+                    REFERENCED_COLUMN_NAME
+                FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = '{$tableName}'
+                    AND REFERENCED_TABLE_NAME IS NOT NULL";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return [];
+        }
+
+        $foreignKeys = [];
+        while ($row = $result->fetch_assoc()) {
+            $foreignKeys[$row['CONSTRAINT_NAME']] = [
+                'column' => $row['COLUMN_NAME'],
+                'references' => $row['REFERENCED_TABLE_NAME'] . '(' . $row['REFERENCED_COLUMN_NAME'] . ')'
+            ];
+        }
+
+        return $foreignKeys;
     }
 
     /**
@@ -768,5 +1170,99 @@ class MySQLSchema
     {
         $this->ensureConnection();
         return $this->connection->execute($sql);
+    }
+
+    /**
+     * Get existing composite indexes from database
+     *
+     * Returns only indexes with multiple columns (composite).
+     * Single-column indexes are filtered out.
+     *
+     * @param string $tableName Table name
+     * @return array Composite indexes ['index_name' => ['columns' => ['col1', 'col2']]]
+     */
+    private function getExistingCompositeIndexes($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
+                FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = '{$tableName}'
+                AND INDEX_NAME != 'PRIMARY'
+                ORDER BY INDEX_NAME, SEQ_IN_INDEX";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return [];
+        }
+
+        $indexes = [];
+        while ($row = $result->fetch_assoc()) {
+            $indexName = $row['INDEX_NAME'];
+            if (!isset($indexes[$indexName])) {
+                $indexes[$indexName] = ['columns' => []];
+            }
+            $indexes[$indexName]['columns'][] = $row['COLUMN_NAME'];
+        }
+
+        // Filter out single-column indexes (keep only composite)
+        return array_filter($indexes, function($idx) {
+            return count($idx['columns']) > 1;
+        });
+    }
+
+    /**
+     * Get existing simple (single-column) indexes from database
+     *
+     * Returns only indexes with one column (simple/single-column).
+     * Composite indexes and PRIMARY key are filtered out.
+     *
+     * @param string $tableName Table name
+     * @return array Simple indexes ['index_name' => ['column' => 'col_name', 'unique' => bool]]
+     */
+    private function getExistingSimpleIndexes($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
+                FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = '{$tableName}'
+                AND INDEX_NAME != 'PRIMARY'
+                ORDER BY INDEX_NAME, SEQ_IN_INDEX";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return [];
+        }
+
+        $allIndexes = [];
+        while ($row = $result->fetch_assoc()) {
+            $indexName = $row['INDEX_NAME'];
+            if (!isset($allIndexes[$indexName])) {
+                $allIndexes[$indexName] = [
+                    'columns' => [],
+                    'unique' => $row['NON_UNIQUE'] == 0,
+                ];
+            }
+            $allIndexes[$indexName]['columns'][] = $row['COLUMN_NAME'];
+        }
+
+        // Filter to only single-column NON-UNIQUE indexes
+        // UNIQUE constraints are handled separately (not managed as simple indexes)
+        $simpleIndexes = [];
+        foreach ($allIndexes as $indexName => $indexInfo) {
+            if (count($indexInfo['columns']) === 1 && !$indexInfo['unique']) {
+                $simpleIndexes[$indexName] = [
+                    'column' => $indexInfo['columns'][0],
+                    'unique' => false,
+                ];
+            }
+        }
+
+        return $simpleIndexes;
     }
 }
