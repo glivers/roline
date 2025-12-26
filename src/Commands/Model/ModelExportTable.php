@@ -285,10 +285,11 @@ class ModelExportTable extends ModelCommand
         $batchSize = 1000;
         $progressInterval = 10000;
 
+        // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::rawQuery($sql);
+        $result = Model::rawQueryUnbuffered($sql);
 
-        if (!$result || $result->num_rows === 0) {
+        if (!$result) {
             file_put_contents($filepath, "-- No data in table '{$tableName}'\n");
             return;
         }
@@ -305,10 +306,9 @@ class ModelExportTable extends ModelCommand
             throw new \Exception("Failed to open file for writing");
         }
 
-        // Write header
+        // Write header (row count shown at end after counting)
         fwrite($fileHandle, "-- Table export: {$tableName}\n");
         fwrite($fileHandle, "-- Generated: " . date('Y-m-d H:i:s') . "\n\n");
-        fwrite($fileHandle, "-- Total rows: {$result->num_rows}\n\n");
 
         // Disable foreign key checks for single-table import
         fwrite($fileHandle, "SET FOREIGN_KEY_CHECKS=0;\n\n");
@@ -413,9 +413,9 @@ class ModelExportTable extends ModelCommand
      */
     private function exportToCSV($tableName, $filepath)
     {
-        // Query all rows from table
+        // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::rawQuery($sql);
+        $result = Model::rawQueryUnbuffered($sql);
 
         // Validate query succeeded
         if (!$result) {
@@ -428,22 +428,19 @@ class ModelExportTable extends ModelCommand
             throw new \Exception("Failed to open file for writing");
         }
 
-        // Write CSV content if table has data
-        if ($result->num_rows > 0) {
-            // Extract column names from result metadata
-            $columns = [];
-            $fields = $result->fetch_fields();
-            foreach ($fields as $field) {
-                $columns[] = $field->name;
-            }
+        // Extract column names from result metadata
+        $columns = [];
+        $fields = $result->fetch_fields();
+        foreach ($fields as $field) {
+            $columns[] = $field->name;
+        }
 
-            // Write column headers as first row
-            fputcsv($fp, $columns);
+        // Write column headers as first row
+        fputcsv($fp, $columns);
 
-            // Write each data row (fputcsv handles escaping)
-            while ($row = $result->fetch_assoc()) {
-                fputcsv($fp, array_values($row));
-            }
+        // Write each data row (fputcsv handles escaping)
+        while ($row = $result->fetch_assoc()) {
+            fputcsv($fp, array_values($row));
         }
 
         // Close file handle
