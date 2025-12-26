@@ -326,6 +326,7 @@ class DbExport extends DatabaseCommand
         // Extract schema components
         $columns = $schema['columns'] ?? [];
         $primaryKey = $schema['primary_key'] ?? null;
+        $indexes = $schema['indexes'] ?? [];
         $foreignKeys = $schema['foreign_keys'] ?? [];
         $engine = $schema['engine'] ?? 'InnoDB';
         $charset = $schema['charset'] ?? 'utf8mb4';
@@ -389,6 +390,26 @@ class DbExport extends DatabaseCommand
             $sql .= ",\n  PRIMARY KEY ({$pkColumns})";
         }
 
+        // Add indexes (both simple and composite)
+        if (!empty($indexes)) {
+            foreach ($indexes as $indexName => $indexDef) {
+                // Skip primary key (already added above)
+                if ($indexName === 'PRIMARY') {
+                    continue;
+                }
+
+                // Build column list for index
+                $indexColumns = '`' . implode('`, `', $indexDef['columns']) . '`';
+
+                // Add UNIQUE or regular KEY
+                if ($indexDef['unique']) {
+                    $sql .= ",\n  UNIQUE KEY `{$indexName}` ({$indexColumns})";
+                } else {
+                    $sql .= ",\n  KEY `{$indexName}` ({$indexColumns})";
+                }
+            }
+        }
+
         // Add FOREIGN KEY constraints if exist
         if (!empty($foreignKeys)) {
             foreach ($foreignKeys as $constraintName => $fk) {
@@ -438,9 +459,9 @@ class DbExport extends DatabaseCommand
         // Update every 10k rows gives good feedback without cluttering output
         $progressInterval = 10000;
 
-        // Query all rows from table
+        // Query all rows from table (unbuffered - fetches one row at a time)
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::rawQuery($sql);
+        $result = Model::rawQueryUnbuffered($sql);
 
         // Show initial message (no newline yet - we'll update on same line)
         echo "  → Exporting {$tableName}...";
@@ -451,8 +472,8 @@ class DbExport extends DatabaseCommand
         }
         flush();
 
-        // Handle empty table
-        if (!$result || $result->num_rows === 0) {
+        // Handle query failure
+        if (!$result) {
             fwrite($fileHandle, "-- No data in table\n");
             echo " \033[37m(0 rows)\033[0m\n";  // White text in parentheses
             return;
@@ -465,9 +486,8 @@ class DbExport extends DatabaseCommand
             $columns[] = $field->name;
         }
 
-        // Write data header comment
-        fwrite($fileHandle, "-- Data for table {$tableName}\n");
-        fwrite($fileHandle, "-- Rows: {$result->num_rows}\n\n");
+        // Write data header comment (row count shown at end after processing)
+        fwrite($fileHandle, "-- Data for table {$tableName}\n\n");
 
         // Pre-build column list (same for all rows)
         $columnList = '`' . implode('`, `', $columns) . '`';
