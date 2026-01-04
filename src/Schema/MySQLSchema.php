@@ -337,6 +337,14 @@ class MySQLSchema
             }
         }
 
+        // Add composite unique indexes
+        if (!empty($schema['composite_unique_indexes'])) {
+            foreach ($schema['composite_unique_indexes'] as $indexName => $columns) {
+                $columnList = '`' . implode('`, `', $columns) . '`';
+                $columnDefinitions[] = "UNIQUE KEY `{$indexName}` ({$columnList})";
+            }
+        }
+
         // Add foreign keys
         foreach ($foreignKeys as $fk) {
             // Parse foreign key reference: "table(column)"
@@ -566,6 +574,45 @@ class MySQLSchema
             if ($shouldAdd) {
                 $columnList = '`' . implode('`, `', $columns) . '`';
                 $statements[] = "ALTER TABLE `{$tableName}` ADD INDEX `{$indexName}` ({$columnList});";
+            }
+        }
+
+        // Handle composite unique indexes
+        $existingCompositeUniqueIndexes = $this->getExistingCompositeUniqueIndexes($tableName);
+        $modelCompositeUniqueIndexes = $schema['composite_unique_indexes'] ?? [];
+
+        // Drop composite unique indexes that exist in DB but not in model, or have changed
+        foreach ($existingCompositeUniqueIndexes as $indexName => $indexInfo) {
+            $shouldDrop = false;
+
+            if (!isset($modelCompositeUniqueIndexes[$indexName])) {
+                // Index exists in DB but not in model - drop it
+                $shouldDrop = true;
+            } elseif ($indexInfo['columns'] !== $modelCompositeUniqueIndexes[$indexName]) {
+                // Index exists but columns changed - drop and re-add
+                $shouldDrop = true;
+            }
+
+            if ($shouldDrop) {
+                $statements[] = "ALTER TABLE `{$tableName}` DROP INDEX `{$indexName}`;";
+            }
+        }
+
+        // Add composite unique indexes that exist in model but not in DB, or have changed
+        foreach ($modelCompositeUniqueIndexes as $indexName => $columns) {
+            $shouldAdd = false;
+
+            if (!isset($existingCompositeUniqueIndexes[$indexName])) {
+                // Index exists in model but not in DB - add it
+                $shouldAdd = true;
+            } elseif ($existingCompositeUniqueIndexes[$indexName]['columns'] !== $columns) {
+                // Index exists but columns changed - re-add it (already dropped above)
+                $shouldAdd = true;
+            }
+
+            if ($shouldAdd) {
+                $columnList = '`' . implode('`, `', $columns) . '`';
+                $statements[] = "ALTER TABLE `{$tableName}` ADD UNIQUE INDEX `{$indexName}` ({$columnList});";
             }
         }
 
@@ -1175,8 +1222,8 @@ class MySQLSchema
     /**
      * Get existing composite indexes from database
      *
-     * Returns only indexes with multiple columns (composite).
-     * Single-column indexes are filtered out.
+     * Returns only non-unique indexes with multiple columns (composite).
+     * Single-column indexes and unique indexes are filtered out.
      *
      * @param string $tableName Table name
      * @return array Composite indexes ['index_name' => ['columns' => ['col1', 'col2']]]
@@ -1185,7 +1232,7 @@ class MySQLSchema
     {
         $this->ensureConnection();
 
-        $sql = "SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
+        $sql = "SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
                 FROM INFORMATION_SCHEMA.STATISTICS
                 WHERE TABLE_SCHEMA = DATABASE()
                 AND TABLE_NAME = '{$tableName}'
@@ -1202,14 +1249,61 @@ class MySQLSchema
         while ($row = $result->fetch_assoc()) {
             $indexName = $row['INDEX_NAME'];
             if (!isset($indexes[$indexName])) {
-                $indexes[$indexName] = ['columns' => []];
+                $indexes[$indexName] = [
+                    'columns' => [],
+                    'unique' => $row['NON_UNIQUE'] == 0,
+                ];
             }
             $indexes[$indexName]['columns'][] = $row['COLUMN_NAME'];
         }
 
-        // Filter out single-column indexes (keep only composite)
+        // Filter: keep only composite (multi-column) AND non-unique indexes
         return array_filter($indexes, function($idx) {
-            return count($idx['columns']) > 1;
+            return count($idx['columns']) > 1 && !$idx['unique'];
+        });
+    }
+
+    /**
+     * Get existing composite unique indexes from database
+     *
+     * Returns only unique indexes with multiple columns (composite unique).
+     * Single-column indexes and non-unique indexes are filtered out.
+     *
+     * @param string $tableName Table name
+     * @return array Composite unique indexes ['index_name' => ['columns' => ['col1', 'col2']]]
+     */
+    private function getExistingCompositeUniqueIndexes($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE
+                FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = '{$tableName}'
+                AND INDEX_NAME != 'PRIMARY'
+                ORDER BY INDEX_NAME, SEQ_IN_INDEX";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return [];
+        }
+
+        $indexes = [];
+        while ($row = $result->fetch_assoc()) {
+            $indexName = $row['INDEX_NAME'];
+            if (!isset($indexes[$indexName])) {
+                $indexes[$indexName] = [
+                    'columns' => [],
+                    'unique' => $row['NON_UNIQUE'] == 0,
+                ];
+            }
+            $indexes[$indexName]['columns'][] = $row['COLUMN_NAME'];
+        }
+
+        // Filter: keep only composite (multi-column) AND unique indexes
+        return array_filter($indexes, function($idx) {
+            return count($idx['columns']) > 1 && $idx['unique'];
         });
     }
 
@@ -1251,14 +1345,13 @@ class MySQLSchema
             $allIndexes[$indexName]['columns'][] = $row['COLUMN_NAME'];
         }
 
-        // Filter to only single-column NON-UNIQUE indexes
-        // UNIQUE constraints are handled separately (not managed as simple indexes)
+        // Filter to only single-column indexes (both unique and non-unique)
         $simpleIndexes = [];
         foreach ($allIndexes as $indexName => $indexInfo) {
-            if (count($indexInfo['columns']) === 1 && !$indexInfo['unique']) {
+            if (count($indexInfo['columns']) === 1) {
                 $simpleIndexes[$indexName] = [
                     'column' => $indexInfo['columns'][0],
-                    'unique' => false,
+                    'unique' => $indexInfo['unique'],
                 ];
             }
         }
