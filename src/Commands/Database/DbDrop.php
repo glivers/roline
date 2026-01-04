@@ -249,7 +249,7 @@ class DbDrop extends DatabaseCommand
             $this->line();
 
             // Disable foreign key checks for safe table dropping
-            Model::rawQuery('SET FOREIGN_KEY_CHECKS=0');
+            Model::sql('SET FOREIGN_KEY_CHECKS=0');
 
             // Track successfully dropped tables count
             $droppedCount = 0;
@@ -260,7 +260,7 @@ class DbDrop extends DatabaseCommand
                     $this->info("  → Dropping {$tableName}...");
 
                     // Execute DROP TABLE statement
-                    Model::rawQuery("DROP TABLE IF EXISTS `{$tableName}`");
+                    Model::sql("DROP TABLE IF EXISTS `{$tableName}`");
 
                     // Increment dropped count
                     $droppedCount++;
@@ -271,7 +271,7 @@ class DbDrop extends DatabaseCommand
             }
 
             // Re-enable foreign key checks
-            Model::rawQuery('SET FOREIGN_KEY_CHECKS=1');
+            Model::sql('SET FOREIGN_KEY_CHECKS=1');
 
             // All tables processed - display summary
             $this->line();
