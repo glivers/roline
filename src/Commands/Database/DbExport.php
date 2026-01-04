@@ -461,7 +461,7 @@ class DbExport extends DatabaseCommand
 
         // Query all rows from table (unbuffered - fetches one row at a time)
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::rawQueryUnbuffered($sql);
+        $result = Model::noBuffer()->sql($sql);
 
         // Show initial message (no newline yet - we'll update on same line)
         echo "  → Exporting {$tableName}...";
