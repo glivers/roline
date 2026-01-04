@@ -160,7 +160,7 @@ class TableExport extends TableCommand
 
         // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::rawQueryUnbuffered($sql);
+        $result = Model::noBuffer()->sql($sql);
 
         if (!$result) {
             file_put_contents($filepath, "-- No data in table '{$tableName}'\n");
@@ -277,7 +277,7 @@ class TableExport extends TableCommand
     {
         // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::rawQueryUnbuffered($sql);
+        $result = Model::noBuffer()->sql($sql);
 
         if (!$result) {
             throw new \Exception("Failed to query table");
