@@ -326,7 +326,7 @@ class DbImport extends DatabaseCommand
             if (substr(rtrim($line), -1) === ';') {
                 try {
                     // Execute the complete SQL statement
-                    Model::rawQuery($statement);
+                    Model::sql($statement);
                     $statementsExecuted++;
 
                     // Show progress every progressInterval statements
