@@ -48,7 +48,7 @@ class SchemaReader
                 AND TABLE_NAME != 'migrations'
                 ORDER BY TABLE_NAME";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $tables = [];
         if ($result && $result->num_rows > 0) {
@@ -116,7 +116,7 @@ class SchemaReader
                 AND TABLE_NAME = '{$table}'
                 ORDER BY ORDINAL_POSITION";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $columns = [];
         if ($result && $result->num_rows > 0) {
@@ -154,7 +154,7 @@ class SchemaReader
                 AND INDEX_NAME != 'PRIMARY'
                 ORDER BY INDEX_NAME, SEQ_IN_INDEX";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $indexes = [];
         if ($result && $result->num_rows > 0) {
@@ -189,7 +189,7 @@ class SchemaReader
                 AND INDEX_NAME = 'PRIMARY'
                 ORDER BY SEQ_IN_INDEX";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $columns = [];
         if ($result && $result->num_rows > 0) {
@@ -214,7 +214,7 @@ class SchemaReader
                 WHERE TABLE_SCHEMA = '{$this->database}'
                 AND TABLE_NAME = '{$table}'";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         if ($result && $result->num_rows > 0) {
             $row = $result->fetch_assoc();
@@ -239,7 +239,7 @@ class SchemaReader
                 WHERE T.TABLE_SCHEMA = '{$this->database}'
                 AND T.TABLE_NAME = '{$table}'";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         if ($result && $result->num_rows > 0) {
             $row = $result->fetch_assoc();
@@ -268,7 +268,7 @@ class SchemaReader
                 AND REFERENCED_TABLE_NAME IS NOT NULL
                 ORDER BY CONSTRAINT_NAME";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $foreignKeys = [];
         if ($result && $result->num_rows > 0) {
@@ -283,7 +283,7 @@ class SchemaReader
                           WHERE CONSTRAINT_SCHEMA = '{$this->database}'
                           AND CONSTRAINT_NAME = '{$constraintName}'";
 
-                $refResult = Model::rawQuery($refSql);
+                $refResult = Model::sql($refSql);
                 $refRow = $refResult->fetch_assoc(); 
 
                 $foreignKeys[$constraintName] = [
