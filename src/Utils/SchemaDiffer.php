@@ -144,6 +144,43 @@ class SchemaDiffer
             }
         }
 
+        // Detect CHECK constraint changes (MySQL 8.0.16+)
+        $oldCheckConstraints = $oldSchema['check_constraints'] ?? [];
+        $newCheckConstraints = $newSchema['check_constraints'] ?? [];
+
+        // Find added check constraints
+        foreach ($newCheckConstraints as $constraintName => $checkClause) {
+            if (!isset($oldCheckConstraints[$constraintName])) {
+                $upSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $checkClause);
+                $downSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+            }
+        }
+
+        // Find removed check constraints
+        foreach ($oldCheckConstraints as $constraintName => $checkClause) {
+            if (!isset($newCheckConstraints[$constraintName])) {
+                $upSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+                $downSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $checkClause);
+            }
+        }
+
+        // Find modified check constraints (drop old, add new)
+        foreach ($newCheckConstraints as $constraintName => $newCheckClause) {
+            if (isset($oldCheckConstraints[$constraintName])) {
+                $oldCheckClause = $oldCheckConstraints[$constraintName];
+                if ($oldCheckClause !== $newCheckClause) {
+                    // Drop old constraint
+                    $upSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+                    // Add new constraint
+                    $upSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $newCheckClause);
+
+                    // Reverse for down migration
+                    $downSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+                    $downSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $oldCheckClause);
+                }
+            }
+        }
+
         // Detect index changes (both simple and composite)
         $oldIndexes = $oldSchema['indexes'] ?? [];
         $newIndexes = $newSchema['indexes'] ?? [];
@@ -238,11 +275,16 @@ class SchemaDiffer
 
                 // Build column list for index
                 $indexColumns = '`' . implode('`, `', $indexDef['columns']) . '`';
+                $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
 
-                // Add UNIQUE or regular KEY
-                if ($indexDef['unique'] ?? false) {
+                // Add appropriate index type
+                if ($indexType === 'FULLTEXT') {
+                    $sql .= ",\n    FULLTEXT KEY `{$indexName}` ({$indexColumns})";
+                }
+                elseif ($indexDef['unique'] ?? false) {
                     $sql .= ",\n    UNIQUE KEY `{$indexName}` ({$indexColumns})";
-                } else {
+                }
+                else {
                     $sql .= ",\n    KEY `{$indexName}` ({$indexColumns})";
                 }
             }
@@ -439,10 +481,15 @@ class SchemaDiffer
     protected function generateAddIndex($tableName, $indexName, $indexDef)
     {
         $columnList = '`' . implode('`, `', $indexDef['columns']) . '`';
+        $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
 
-        if ($indexDef['unique'] ?? false) {
+        if ($indexType === 'FULLTEXT') {
+            return "ALTER TABLE `{$tableName}` ADD FULLTEXT INDEX `{$indexName}` ({$columnList});";
+        }
+        elseif ($indexDef['unique'] ?? false) {
             return "ALTER TABLE `{$tableName}` ADD UNIQUE INDEX `{$indexName}` ({$columnList});";
-        } else {
+        }
+        else {
             return "ALTER TABLE `{$tableName}` ADD INDEX `{$indexName}` ({$columnList});";
         }
     }
@@ -457,5 +504,30 @@ class SchemaDiffer
     protected function generateDropIndex($tableName, $indexName)
     {
         return "ALTER TABLE `{$tableName}` DROP INDEX `{$indexName}`;";
+    }
+
+    /**
+     * Generate ADD CHECK CONSTRAINT SQL (MySQL 8.0.16+)
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @param string $checkClause CHECK clause expression
+     * @return string SQL statement
+     */
+    protected function generateAddCheckConstraint($tableName, $constraintName, $checkClause)
+    {
+        return "ALTER TABLE `{$tableName}` ADD CONSTRAINT `{$constraintName}` CHECK ({$checkClause});";
+    }
+
+    /**
+     * Generate DROP CHECK CONSTRAINT SQL (MySQL 8.0.16+)
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @return string SQL statement
+     */
+    protected function generateDropCheckConstraint($tableName, $constraintName)
+    {
+        return "ALTER TABLE `{$tableName}` DROP CHECK `{$constraintName}`;";
     }
 }
