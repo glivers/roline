@@ -218,10 +218,13 @@ class Roline
 
             // Table commands - Direct database table operations (no models required)
             'table:create'        => Commands\Table\TableCreate::class,
+            'table:copy'          => Commands\Table\TableCopy::class,
             'table:delete'        => Commands\Table\TableDelete::class,
             'table:rename'        => Commands\Table\TableRename::class,
             'table:schema'        => Commands\Table\TableSchema::class,
             'table:export'        => Commands\Table\TableExport::class,
+            'table:partition'     => Commands\Table\TablePartition::class,
+            'table:unpartition'   => Commands\Table\TableUnpartition::class,
 
             // Migration commands - Version-controlled database changes
             'migration:make'      => Commands\Migration\MigrationMake::class,
