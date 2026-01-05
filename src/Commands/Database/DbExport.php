@@ -377,6 +377,11 @@ class DbExport extends DatabaseCommand
                 }
             }
 
+            // Add column comment if exists
+            if (!empty($columnDef['comment'])) {
+                $def .= " COMMENT '" . addslashes($columnDef['comment']) . "'";
+            }
+
             $columnDefs[] = $def;
         }
 
@@ -400,11 +405,16 @@ class DbExport extends DatabaseCommand
 
                 // Build column list for index
                 $indexColumns = '`' . implode('`, `', $indexDef['columns']) . '`';
+                $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
 
-                // Add UNIQUE or regular KEY
-                if ($indexDef['unique']) {
+                // Add appropriate index type
+                if ($indexType === 'FULLTEXT') {
+                    $sql .= ",\n  FULLTEXT KEY `{$indexName}` ({$indexColumns})";
+                }
+                elseif ($indexDef['unique']) {
                     $sql .= ",\n  UNIQUE KEY `{$indexName}` ({$indexColumns})";
-                } else {
+                }
+                else {
                     $sql .= ",\n  KEY `{$indexName}` ({$indexColumns})";
                 }
             }
@@ -426,8 +436,33 @@ class DbExport extends DatabaseCommand
             }
         }
 
+        // Add CHECK constraints if exist (MySQL 8.0.16+)
+        $checkConstraints = $schema['check_constraints'] ?? [];
+        if (!empty($checkConstraints)) {
+            foreach ($checkConstraints as $constraintName => $checkClause) {
+                $sql .= ",\n  CONSTRAINT `{$constraintName}` CHECK ({$checkClause})";
+            }
+        }
+
         // Close CREATE TABLE with engine and charset
-        $sql .= "\n) ENGINE={$engine} DEFAULT CHARSET={$charset};";
+        $sql .= "\n) ENGINE={$engine} DEFAULT CHARSET={$charset}";
+
+        // Add table comment if exists
+        $tableComment = $schema['table_comment'] ?? null;
+        if (!empty($tableComment)) {
+            $sql .= " COMMENT='" . addslashes($tableComment) . "'";
+        }
+
+        // Add partitioning if exists
+        $partition = $schema['partition'] ?? null;
+        if (!empty($partition)) {
+            $type = strtoupper($partition['type']);
+            $column = $partition['column'];
+            $count = $partition['count'];
+            $sql .= "\nPARTITION BY {$type}(`{$column}`)\nPARTITIONS {$count}";
+        }
+
+        $sql .= ";";
 
         return $sql;
     }
