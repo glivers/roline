@@ -264,8 +264,19 @@ class DbSchema extends DatabaseCommand
                 $parts[] = strtoupper($columnDef['extra']);
             }
 
+            // Add column comment if exists
+            if (!empty($columnDef['comment'])) {
+                $parts[] = "-- {$columnDef['comment']}";
+            }
+
             // Display complete column definition with indentation
             $this->line('  ' . implode(' ', $parts));
+        }
+
+        // Display table comment if exists
+        if (!empty($schema['table_comment'])) {
+            $this->line();
+            $this->line("  COMMENT: {$schema['table_comment']}");
         }
 
         // Display primary key information if exists
@@ -304,22 +315,49 @@ class DbSchema extends DatabaseCommand
             }
         }
 
+        // Display CHECK constraints if exists
+        if (!empty($schema['check_constraints'])) {
+            $this->line();
+            $this->line('  CHECK CONSTRAINTS:');
+
+            // Display each check constraint with its clause
+            foreach ($schema['check_constraints'] as $constraintName => $checkClause) {
+                $this->line("    {$constraintName}: {$checkClause}");
+            }
+        }
+
         // Display index information if exists
         if (!empty($schema['indexes'])) {
             $this->line();
             $this->line('  INDEXES:');
 
-            // Display each index with columns and unique status
+            // Display each index with columns and type/unique status
             foreach ($schema['indexes'] as $indexName => $indexDef) {
                 // Join index columns with comma
                 $columns = implode(', ', $indexDef['columns']);
 
-                // Show UNIQUE if index is unique
-                $unique = $indexDef['unique'] ? 'UNIQUE' : '';
+                // Determine index type label
+                $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
+                $typeLabel = '';
+
+                if ($indexType === 'FULLTEXT') {
+                    $typeLabel = 'FULLTEXT';
+                }
+                elseif ($indexDef['unique'] ?? false) {
+                    $typeLabel = 'UNIQUE';
+                }
 
                 // Display index definition with extra indentation
-                $this->line("    {$indexName}: {$columns} {$unique}");
+                $this->line("    {$indexName}: {$columns} {$typeLabel}");
             }
+        }
+
+        // Display partition information if exists
+        if (!empty($schema['partition'])) {
+            $this->line();
+            $partition = $schema['partition'];
+            $type = strtoupper($partition['type']);
+            $this->line("  PARTITION BY {$type}({$partition['column']}) PARTITIONS {$partition['count']}");
         }
     }
 }
