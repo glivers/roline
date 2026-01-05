@@ -3,8 +3,8 @@
 /**
  * DbEmpty Command
  *
- * Empties ALL tables in the database by deleting all rows while preserving table structures.
- * Much faster than emptying tables one by one, useful for development/testing.
+ * Empties ALL tables in the database using TRUNCATE while preserving table structures.
+ * Much faster than DELETE and resets auto-increment counters.
  *
  * What Gets Deleted:
  *   - ALL rows in ALL tables (complete data loss)
@@ -14,15 +14,23 @@
  *   - ALL table structures
  *   - Column definitions
  *   - Indexes and constraints
- *   - Auto-increment counters (NOT reset)
  *   - Triggers
  *
+ * What Gets Reset:
+ *   - Auto-increment counters (reset to 1)
+ *
+ * TRUNCATE vs DELETE:
+ *   - TRUNCATE is much faster (doesn't log individual row deletions)
+ *   - TRUNCATE resets auto-increment counters
+ *   - TRUNCATE cannot be rolled back (even in transaction)
+ *   - DELETE is slower but keeps auto-increment values
+ *
  * Safety Features:
- *   - Shows list of all tables before deletion
+ *   - Shows list of all tables before truncation
  *   - Requires user confirmation
  *   - Disables foreign key checks during operation
- *   - Continues through errors (empties as many tables as possible)
- *   - Displays summary of successfully emptied tables
+ *   - Continues through errors (truncates as many tables as possible)
+ *   - Displays summary of successfully truncated tables
  *
  * Use Cases:
  *   - Clearing development database for fresh crawl
@@ -56,7 +64,7 @@ class DbEmpty extends DatabaseCommand
      */
     public function description()
     {
-        return 'Empty all database tables (delete all rows)';
+        return 'Empty all tables (TRUNCATE, resets auto-increment)';
     }
 
     /**
@@ -79,8 +87,8 @@ class DbEmpty extends DatabaseCommand
         parent::help();
 
         Output::info('Description:');
-        Output::line('  Empties ALL tables in the database by deleting all rows.');
-        Output::line('  Table structures are preserved (unlike db:drop).');
+        Output::line('  Empties ALL tables in the database using TRUNCATE.');
+        Output::line('  Table structures are preserved, auto-increment counters reset to 1.');
         Output::line();
 
         Output::info('Examples:');
@@ -90,7 +98,13 @@ class DbEmpty extends DatabaseCommand
         Output::info('Warning:');
         Output::line('  - This deletes ALL data from ALL tables!');
         Output::line('  - This action CANNOT be undone!');
+        Output::line('  - Auto-increment counters will be reset to 1');
         Output::line('  - Table structures are preserved');
+        Output::line();
+
+        Output::info('See also:');
+        Output::line('  db:drop         - Drop the entire database');
+        Output::line('  db:drop-tables  - Drop all tables (keeps database)');
         Output::line();
     }
 
@@ -112,7 +126,7 @@ class DbEmpty extends DatabaseCommand
 
             // Display warning banner
             $this->line();
-            $this->error('WARNING: This will DELETE ALL rows from ALL tables!');
+            $this->error('WARNING: This will TRUNCATE ALL tables (delete all data)!');
             $this->line();
 
             // Get database connection from Registry
@@ -134,10 +148,10 @@ class DbEmpty extends DatabaseCommand
 
             // Display database info and table count
             $this->info("Database: {$databaseName}");
-            $this->info('Tables to empty: ' . count($tables));
+            $this->info('Tables to truncate: ' . count($tables));
             $this->line();
 
-            // Show all tables that will be emptied
+            // Show all tables that will be truncated
             foreach ($tables as $tableName) {
                 $this->line("  → {$tableName}");
             }
@@ -145,11 +159,11 @@ class DbEmpty extends DatabaseCommand
             // Emphasize irreversibility
             $this->line();
             $this->error('This action CANNOT be undone!');
-            $this->info('Note: Table structures will be preserved');
+            $this->info('Note: Table structures preserved, auto-increment counters reset');
             $this->line();
 
             // Confirmation
-            $confirmed = $this->confirm("Are you sure you want to empty ALL tables in {$databaseName}?");
+            $confirmed = $this->confirm("Are you sure you want to TRUNCATE ALL tables in {$databaseName}?");
 
             if (!$confirmed) {
                 $this->info('Operation cancelled.');
@@ -157,30 +171,30 @@ class DbEmpty extends DatabaseCommand
                 exit(0);
             }
 
-            // Begin emptying tables
+            // Begin truncating tables
             $this->line();
-            $this->info('Emptying tables...');
+            $this->info('Truncating tables...');
             $this->line();
 
-            // Disable foreign key checks for safe deletion
+            // Disable foreign key checks for safe truncation
             $db->execute('SET FOREIGN_KEY_CHECKS=0');
 
-            // Track successfully emptied tables count
-            $emptiedCount = 0;
+            // Track successfully truncated tables count
+            $truncatedCount = 0;
 
-            // Empty each table (continue through errors)
+            // Truncate each table (continue through errors)
             foreach ($tables as $tableName) {
                 try {
-                    $this->info("  → Emptying {$tableName}...");
+                    $this->info("  → Truncating {$tableName}...");
 
-                    // Execute DELETE FROM statement
-                    $db->execute("DELETE FROM `{$tableName}`");
+                    // Execute TRUNCATE TABLE statement (faster than DELETE, resets auto-increment)
+                    $db->execute("TRUNCATE TABLE `{$tableName}`");
 
-                    // Increment emptied count
-                    $emptiedCount++;
+                    // Increment truncated count
+                    $truncatedCount++;
                 } catch (\Exception $e) {
-                    // Table empty failed - display error but continue
-                    $this->error("  ✗ Failed to empty {$tableName}: " . $e->getMessage());
+                    // Table truncate failed - display error but continue
+                    $this->error("  ✗ Failed to truncate {$tableName}: " . $e->getMessage());
                 }
             }
 
@@ -189,9 +203,9 @@ class DbEmpty extends DatabaseCommand
 
             // All tables processed - display summary
             $this->line();
-            $this->success("Successfully emptied {$emptiedCount} tables!");
+            $this->success("Successfully truncated {$truncatedCount} tables!");
             $this->line();
-            $this->info("All data deleted from '{$databaseName}'. Table structures preserved.");
+            $this->info("All data deleted from '{$databaseName}'. Auto-increment counters reset.");
             $this->line();
 
         } catch (\Exception $e) {
