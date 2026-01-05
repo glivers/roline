@@ -182,9 +182,9 @@ class ModelEmptyTable extends ModelCommand
             exit(1);
         }
 
-        // Get current row count to show user
+        // Get current row count to show user (fast estimate)
         try {
-            $rowCount = $schema->getRowCount($tableName);
+            $rowCount = $schema->getRowCountEstimate($tableName);
         } catch (\Exception $e) {
             // Count failed - proceed anyway
             $rowCount = 'unknown';
