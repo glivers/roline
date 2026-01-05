@@ -74,6 +74,9 @@ class MySQLSchema
         // Validate foreign key constraints before creating table
         $this->validateForeignKeys($schema);
 
+        // Validate partition configuration
+        $this->validatePartition($schema);
+
         // Generate CREATE TABLE SQL
         $sql = $this->generateCreateTableSQL($schema);
 
@@ -139,7 +142,7 @@ class MySQLSchema
         echo "\n";
 
         // Check for slow operations and warn user
-        $rowCount = $this->getRowCount($schema['table']);
+        $rowCount = $this->getRowCountEstimate($schema['table']);
         $hasSlowOps = false;
 
         foreach ($statements as $stmt) {
@@ -173,6 +176,34 @@ class MySQLSchema
                 echo "           This may take " . $estimatedMinutes . "-" . ($estimatedMinutes * 3) . " minutes.\n";
                 echo "           DO NOT INTERRUPT - let it complete!\n\n";
                 break; // Only show warning once
+            }
+
+            // Warn about partition changes on large tables
+            if (stripos($stmt, 'PARTITION BY') !== false && $rowCount > 100000) {
+                $hasSlowOps = true;
+                $tableSize = $this->getTableSize($schema['table']);
+                $tableSizeFormatted = $this->formatBytes($tableSize);
+                $estimatedMinutes = ceil($rowCount / 500000); // ~500K rows per minute for partitioning
+
+                echo "⚠ WARNING: Adding partitioning to large table (" . number_format($rowCount) . " rows)\n";
+                echo "           Current table size: {$tableSizeFormatted}\n";
+                echo "           Temporary space required: ~{$tableSizeFormatted} (rebuilds table)\n";
+                echo "           Estimated time: {$estimatedMinutes}-" . ($estimatedMinutes * 2) . " minutes.\n";
+                echo "           DO NOT INTERRUPT - let it complete!\n\n";
+                break;
+            }
+
+            // Warn about removing partitioning
+            if (stripos($stmt, 'REMOVE PARTITIONING') !== false && $rowCount > 100000) {
+                $hasSlowOps = true;
+                $tableSize = $this->getTableSize($schema['table']);
+                $tableSizeFormatted = $this->formatBytes($tableSize);
+
+                echo "⚠ WARNING: Removing partitioning from large table (" . number_format($rowCount) . " rows)\n";
+                echo "           This requires a full table rebuild.\n";
+                echo "           Temporary space required: ~{$tableSizeFormatted}\n";
+                echo "           DO NOT INTERRUPT - let it complete!\n\n";
+                break;
             }
         }
 
@@ -245,6 +276,7 @@ class MySQLSchema
         $primaryKeys = [];
         $uniqueKeys = [];
         $indexes = [];
+        $fulltextIndexes = [];
         $foreignKeys = [];
 
         foreach ($columns as $column) {
@@ -285,9 +317,20 @@ class MySQLSchema
             if ($column['default'] !== null) {
                 if (in_array(strtoupper($column['default']), ['CURRENT_TIMESTAMP', 'NULL'])) {
                     $def .= " DEFAULT {$column['default']}";
-                } else {
+                }
+                else {
                     $def .= " DEFAULT '" . addslashes($column['default']) . "'";
                 }
+            }
+
+            // COMMENT
+            if (!empty($column['comment'])) {
+                $def .= " COMMENT '" . addslashes($column['comment']) . "'";
+            }
+
+            // CHECK constraint (MySQL 8.0+)
+            if (!empty($column['check'])) {
+                $def .= " CHECK (" . $column['check'] . ")";
             }
 
             $columnDefinitions[] = $def;
@@ -301,6 +344,9 @@ class MySQLSchema
             }
             if ($column['index']) {
                 $indexes[] = $column['name'];
+            }
+            if (!empty($column['fulltext'])) {
+                $fulltextIndexes[] = $column['name'];
             }
 
             // Track foreign keys
@@ -345,6 +391,11 @@ class MySQLSchema
             }
         }
 
+        // Add fulltext indexes
+        foreach ($fulltextIndexes as $column) {
+            $columnDefinitions[] = "FULLTEXT KEY `{$column}_fulltext` (`{$column}`)";
+        }
+
         // Add foreign keys
         foreach ($foreignKeys as $fk) {
             // Parse foreign key reference: "table(column)"
@@ -370,7 +421,19 @@ class MySQLSchema
 
         $sql = "CREATE TABLE `{$tableName}` (\n  ";
         $sql .= implode(",\n  ", $columnDefinitions);
-        $sql .= "\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+        $sql .= "\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+
+        // Add table comment if defined
+        if (!empty($schema['table_comment'])) {
+            $sql .= " COMMENT='" . addslashes($schema['table_comment']) . "'";
+        }
+
+        // Add partitioning if defined
+        if (!empty($schema['partition'])) {
+            $sql .= $this->generatePartitionClause($schema['partition']);
+        }
+
+        $sql .= ";";
 
         return $sql;
     }
@@ -459,12 +522,20 @@ class MySQLSchema
             if (!isset($existingColumns[$name])) {
                 // New column
                 $columnDef = $this->getColumnDefinition($column);
-                $statements[] = "ALTER TABLE `{$tableName}` ADD COLUMN `{$name}` {$columnDef};";
-            } else {
+                $positionClause = $this->getPositionClause($column);
+                $statements[] = "ALTER TABLE `{$tableName}` ADD COLUMN `{$name}` {$columnDef}{$positionClause};";
+
+                // Add fulltext index if specified
+                if (!empty($column['fulltext'])) {
+                    $statements[] = "ALTER TABLE `{$tableName}` ADD FULLTEXT INDEX `{$name}_fulltext` (`{$name}`);";
+                }
+            }
+            else {
                 // Column exists - check if ACTUALLY modified (smart diffing)
                 if ($this->columnDefinitionChanged($existingColumns[$name], $column)) {
                     $columnDef = $this->getColumnDefinition($column);
-                    $statements[] = "ALTER TABLE `{$tableName}` MODIFY COLUMN `{$name}` {$columnDef};";
+                    $positionClause = $this->getPositionClause($column);
+                    $statements[] = "ALTER TABLE `{$tableName}` MODIFY COLUMN `{$name}` {$columnDef}{$positionClause};";
                 }
                 // Otherwise skip - no change needed!
             }
@@ -655,10 +726,67 @@ class MySQLSchema
                 $column = '`' . $indexDef['column'] . '`';
                 if ($indexDef['unique']) {
                     $statements[] = "ALTER TABLE `{$tableName}` ADD UNIQUE INDEX `{$indexName}` ({$column});";
-                } else {
+                }
+                else {
                     $statements[] = "ALTER TABLE `{$tableName}` ADD INDEX `{$indexName}` ({$column});";
                 }
             }
+        }
+
+        // Handle fulltext indexes
+        $existingFulltextIndexes = $this->getExistingFulltextIndexes($tableName);
+        $modelFulltextIndexes = [];
+
+        // Collect fulltext indexes from model columns
+        foreach ($schema['columns'] as $column) {
+            if (!empty($column['fulltext']) && !$column['drop']) {
+                $indexName = $column['name'] . '_fulltext';
+                $modelFulltextIndexes[$indexName] = $column['name'];
+            }
+        }
+
+        // Drop fulltext indexes that exist in DB but not in model
+        foreach ($existingFulltextIndexes as $indexName => $columnName) {
+            if (!isset($modelFulltextIndexes[$indexName])) {
+                $statements[] = "ALTER TABLE `{$tableName}` DROP INDEX `{$indexName}`;";
+            }
+        }
+
+        // Add fulltext indexes that exist in model but not in DB
+        foreach ($modelFulltextIndexes as $indexName => $columnName) {
+            if (!isset($existingFulltextIndexes[$indexName])) {
+                $statements[] = "ALTER TABLE `{$tableName}` ADD FULLTEXT INDEX `{$indexName}` (`{$columnName}`);";
+            }
+        }
+
+        // Handle partitioning changes
+        $existingPartition = $this->getExistingPartition($tableName);
+        $modelPartition = $schema['partition'] ?? null;
+
+        // Compare partition configurations
+        $partitionChanged = false;
+        if ($modelPartition && !$existingPartition) {
+            // Adding partitioning to non-partitioned table
+            $partitionChanged = true;
+        } elseif (!$modelPartition && $existingPartition) {
+            // Removing partitioning - generate REMOVE PARTITIONING
+            $statements[] = "ALTER TABLE `{$tableName}` REMOVE PARTITIONING;";
+        } elseif ($modelPartition && $existingPartition) {
+            // Both have partitioning - check if different
+            if ($modelPartition['type'] !== strtolower($existingPartition['type']) ||
+                $modelPartition['column'] !== $existingPartition['column'] ||
+                $modelPartition['count'] !== $existingPartition['count']) {
+                $partitionChanged = true;
+            }
+        }
+
+        if ($partitionChanged && $modelPartition) {
+            // Validate partition before generating ALTER
+            $this->validatePartition($schema);
+
+            // Generate partition clause
+            $partitionClause = $this->generatePartitionClause($modelPartition);
+            $statements[] = "ALTER TABLE `{$tableName}` {$partitionClause};";
         }
 
         return [
@@ -689,12 +817,14 @@ class MySQLSchema
         $currentNull = $dbColumn['Null'] === 'YES' ? ' NULL' : ' NOT NULL';
         $currentDefault = '';
         $currentExtra = '';
+        $currentComment = '';
 
         // Handle default values
         if ($dbColumn['Default'] !== null) {
             if (in_array(strtoupper($dbColumn['Default']), ['CURRENT_TIMESTAMP', 'NULL'])) {
                 $currentDefault = " DEFAULT {$dbColumn['Default']}";
-            } else {
+            }
+            else {
                 $currentDefault = " DEFAULT '" . addslashes($dbColumn['Default']) . "'";
             }
         }
@@ -704,7 +834,12 @@ class MySQLSchema
             $currentExtra = ' ' . strtoupper($dbColumn['Extra']);
         }
 
-        $currentDef = $currentType . $currentNull . $currentDefault . $currentExtra;
+        // Handle comment (from SHOW FULL COLUMNS)
+        if (!empty($dbColumn['Comment'])) {
+            $currentComment = " COMMENT '" . addslashes($dbColumn['Comment']) . "'";
+        }
+
+        $currentDef = $currentType . $currentNull . $currentDefault . $currentExtra . $currentComment;
 
         // Normalize both for comparison (remove extra whitespace, make uppercase)
         $currentDef = preg_replace('/\s+/', ' ', strtoupper(trim($currentDef)));
@@ -722,7 +857,13 @@ class MySQLSchema
                 // Both are JSON - only check if NULL-ability changed
                 $currentIsNullable = $dbColumn['Null'] === 'YES';
                 $newIsNullable = $modelColumn['nullable'];
-                return $currentIsNullable !== $newIsNullable;
+
+                // Also check comment change for JSON columns
+                $currentCommentVal = $dbColumn['Comment'] ?? '';
+                $newCommentVal = $modelColumn['comment'] ?? '';
+
+                return $currentIsNullable !== $newIsNullable
+                    || $currentCommentVal !== $newCommentVal;
             }
             // DB is not JSON but model is - needs modification
         }
@@ -770,12 +911,42 @@ class MySQLSchema
         if ($column['default'] !== null) {
             if (in_array(strtoupper($column['default']), ['CURRENT_TIMESTAMP', 'NULL'])) {
                 $def .= " DEFAULT {$column['default']}";
-            } else {
+            }
+            else {
                 $def .= " DEFAULT '" . addslashes($column['default']) . "'";
             }
         }
 
+        // COMMENT
+        if (!empty($column['comment'])) {
+            $def .= " COMMENT '" . addslashes($column['comment']) . "'";
+        }
+
+        // CHECK constraint (MySQL 8.0+)
+        if (!empty($column['check'])) {
+            $def .= " CHECK (" . $column['check'] . ")";
+        }
+
         return $def;
+    }
+
+    /**
+     * Get column position clause (FIRST or AFTER)
+     *
+     * @param array $column Column definition
+     * @return string Position clause (e.g., " FIRST" or " AFTER `col`") or empty string
+     */
+    private function getPositionClause($column)
+    {
+        if (!empty($column['first'])) {
+            return " FIRST";
+        }
+
+        if (!empty($column['after'])) {
+            return " AFTER `{$column['after']}`";
+        }
+
+        return "";
     }
 
     /**
@@ -788,7 +959,8 @@ class MySQLSchema
     {
         $this->ensureConnection();
 
-        $sql = "SHOW COLUMNS FROM `{$tableName}`";
+        // Use SHOW FULL COLUMNS to include Comment field
+        $sql = "SHOW FULL COLUMNS FROM `{$tableName}`";
         $result = $this->connection->execute($sql);
 
         if (!$result) {
@@ -985,6 +1157,76 @@ class MySQLSchema
     }
 
     /**
+     * Get estimated row count (fast, uses INFORMATION_SCHEMA)
+     *
+     * Returns approximate row count from table statistics.
+     * Instant even on billion-row tables. Not 100% accurate but
+     * good enough for progress display and estimates.
+     *
+     * @param string $tableName Table name
+     * @return int Estimated row count
+     */
+    public function getRowCountEstimate($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = '{$tableName}'";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return 0;
+        }
+
+        $row = $result->fetch_assoc();
+        return (int) ($row['TABLE_ROWS'] ?? 0);
+    }
+
+    /**
+     * Get table size in bytes
+     *
+     * @param string $tableName Table name
+     * @return int Size in bytes
+     */
+    public function getTableSize($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT (DATA_LENGTH + INDEX_LENGTH) as size
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = '{$tableName}'";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return 0;
+        }
+
+        $row = $result->fetch_assoc();
+        return (int) ($row['size'] ?? 0);
+    }
+
+    /**
+     * Format bytes to human readable string
+     *
+     * @param int $bytes Size in bytes
+     * @return string Formatted size (e.g., "1.5 GB")
+     */
+    private function formatBytes($bytes)
+    {
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $bytes = max($bytes, 0);
+        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+        $pow = min($pow, count($units) - 1);
+        $bytes /= pow(1024, $pow);
+
+        return round($bytes, 2) . ' ' . $units[$pow];
+    }
+
+    /**
      * Empty a table by deleting all rows
      *
      * Preserves table structure and indexes, but removes all data.
@@ -1029,6 +1271,14 @@ class MySQLSchema
             $extra = $row['Extra'] ? " {$row['Extra']}" : '';
 
             echo "  {$col}: {$type} {$null}{$key}{$extra}\n";
+        }
+
+        // Display partition info if exists
+        $partition = $this->getExistingPartition($tableName);
+        if ($partition) {
+            echo "\nPartition:\n";
+            $type = strtoupper($partition['type']);
+            echo "  PARTITION BY {$type}({$partition['column']}) PARTITIONS {$partition['count']}\n";
         }
     }
 
@@ -1208,6 +1458,63 @@ class MySQLSchema
     }
 
     /**
+     * Validate partition configuration
+     *
+     * Ensures partition column exists and is part of PRIMARY KEY.
+     * MySQL requires partition column to be in every unique key.
+     *
+     * @param array $schema Parsed model schema
+     * @throws \Exception If partition is invalid
+     */
+    private function validatePartition($schema)
+    {
+        // No partition defined? Nothing to validate
+        if (empty($schema['partition'])) {
+            return;
+        }
+
+        $partition = $schema['partition'];
+        $partitionColumn = $partition['column'];
+
+        // 1. Check partition column exists in schema
+        if (!isset($schema['columns'][$partitionColumn])) {
+            throw new \Exception(
+                "Partition Validation Failed!\n\n" .
+                "  @partition {$partition['type']}({$partitionColumn}) {$partition['count']}\n\n" .
+                "  Problem: Column '{$partitionColumn}' does not exist in model.\n\n" .
+                "  Fix: The partition column must be defined as a @column in the model.\n" .
+                "       Add a property with @column annotation for '{$partitionColumn}'."
+            );
+        }
+
+        // 2. Check partition column is part of PRIMARY KEY
+        // MySQL requirement: partition column must be in every unique key
+        $primaryKeys = [];
+        foreach ($schema['columns'] as $colName => $colDef) {
+            if (!empty($colDef['primary'])) {
+                $primaryKeys[] = $colName;
+            }
+        }
+
+        if (!in_array($partitionColumn, $primaryKeys)) {
+            $currentPK = empty($primaryKeys) ? '(none)' : implode(', ', $primaryKeys);
+            throw new \Exception(
+                "Partition Validation Failed!\n\n" .
+                "  @partition {$partition['type']}({$partitionColumn}) {$partition['count']}\n\n" .
+                "  Problem: Column '{$partitionColumn}' is not part of PRIMARY KEY.\n\n" .
+                "  Current PRIMARY KEY: {$currentPK}\n\n" .
+                "  Fix: MySQL requires partition column to be in PRIMARY KEY.\n" .
+                "       Add @primary annotation to '{$partitionColumn}' property.\n\n" .
+                "  Example for composite primary key:\n" .
+                "    /** @column @int @primary @auto_increment */\n" .
+                "    protected \$id;\n\n" .
+                "    /** @column @int @primary */\n" .
+                "    protected \${$partitionColumn};"
+            );
+        }
+    }
+
+    /**
      * Execute raw SQL query
      *
      * @param string $sql SQL query to execute
@@ -1357,5 +1664,138 @@ class MySQLSchema
         }
 
         return $simpleIndexes;
+    }
+
+    /**
+     * Get existing FULLTEXT indexes from database table
+     *
+     * Queries INFORMATION_SCHEMA.STATISTICS for FULLTEXT indexes.
+     * Returns index names mapped to their column names.
+     *
+     * Process:
+     *   1. Ensure database connection
+     *   2. Query STATISTICS table for INDEX_TYPE = 'FULLTEXT'
+     *   3. Return associative array of index_name => column_name
+     *
+     * @param string $tableName Table name
+     * @return array Fulltext indexes ['index_name' => 'column_name']
+     */
+    private function getExistingFulltextIndexes($tableName)
+    {
+        $this->ensureConnection();
+
+        $sql = "SELECT INDEX_NAME, COLUMN_NAME
+                FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = '{$tableName}'
+                AND INDEX_TYPE = 'FULLTEXT'
+                ORDER BY INDEX_NAME, SEQ_IN_INDEX";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return [];
+        }
+
+        $indexes = [];
+        while ($row = $result->fetch_assoc()) {
+            $indexes[$row['INDEX_NAME']] = $row['COLUMN_NAME'];
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * Get existing partition info for a table
+     *
+     * Queries INFORMATION_SCHEMA to get current partition configuration.
+     * Returns null if table is not partitioned.
+     *
+     * @param string $tableName Table name
+     * @return array|null Partition config ['type', 'column', 'count'] or null
+     */
+    public function getExistingPartition($tableName)
+    {
+        $this->ensureConnection();
+
+        // Get partition info from INFORMATION_SCHEMA
+        $sql = "SELECT PARTITION_METHOD, PARTITION_EXPRESSION, COUNT(*) as partition_count
+                FROM INFORMATION_SCHEMA.PARTITIONS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = '{$tableName}'
+                AND PARTITION_NAME IS NOT NULL
+                GROUP BY PARTITION_METHOD, PARTITION_EXPRESSION";
+
+        $result = $this->connection->execute($sql);
+
+        if (!$result) {
+            return null;
+        }
+
+        $row = $result->fetch_assoc();
+
+        if (!$row) {
+            return null;
+        }
+
+        // Parse partition method (HASH, KEY, RANGE, LIST)
+        $type = strtolower($row['PARTITION_METHOD']);
+
+        // Parse partition expression (column name)
+        // Expression is like `source` or source - strip backticks
+        $column = trim($row['PARTITION_EXPRESSION'], '`');
+
+        return [
+            'type' => $type,
+            'column' => $column,
+            'count' => (int) $row['partition_count']
+        ];
+    }
+
+    /**
+     * Generate PARTITION BY clause for CREATE TABLE
+     *
+     * Builds the PARTITION BY clause based on partition configuration.
+     * Supports HASH and KEY partitioning with specified partition count.
+     *
+     * Examples:
+     *   ['type' => 'hash', 'column' => 'source', 'count' => 32]
+     *   → PARTITION BY HASH(source) PARTITIONS 32
+     *
+     *   ['type' => 'key', 'column' => 'user_id', 'count' => 16]
+     *   → PARTITION BY KEY(user_id) PARTITIONS 16
+     *
+     * Note: RANGE and LIST partitioning require additional configuration
+     * (partition definitions) which is not yet supported.
+     *
+     * @param array $partition Partition config from ModelParser
+     * @return string PARTITION BY clause (with leading newline)
+     */
+    private function generatePartitionClause($partition)
+    {
+        $type = strtoupper($partition['type']);
+        $column = $partition['column'];
+        $count = $partition['count'];
+
+        switch ($type) {
+            case 'HASH':
+                return "\nPARTITION BY HASH(`{$column}`)\nPARTITIONS {$count}";
+
+            case 'KEY':
+                return "\nPARTITION BY KEY(`{$column}`)\nPARTITIONS {$count}";
+
+            case 'RANGE':
+            case 'LIST':
+                // RANGE and LIST require partition definitions, not just count
+                // For now, return empty - would need extended annotation syntax
+                throw new \Exception(
+                    "RANGE and LIST partitioning not yet supported.\n" .
+                    "Use HASH or KEY partitioning instead:\n" .
+                    "  @partition hash({$column}) 32"
+                );
+
+            default:
+                return '';
+        }
     }
 }
