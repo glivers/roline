@@ -367,6 +367,11 @@ class TableExport extends TableCommand
                 }
             }
 
+            // Add column comment if exists
+            if (!empty($columnDef['comment'])) {
+                $def .= " COMMENT '" . addslashes($columnDef['comment']) . "'";
+            }
+
             $columnDefinitions[] = $def;
         }
 
@@ -385,15 +390,21 @@ class TableExport extends TableCommand
         if (!empty($schema['indexes'])) {
             foreach ($schema['indexes'] as $indexName => $indexDef) {
                 // Skip primary key (already added)
-                if ($indexDef['type'] === 'PRIMARY') {
+                if ($indexName === 'PRIMARY') {
                     continue;
                 }
 
                 $indexColumns = '`' . implode('`, `', $indexDef['columns']) . '`';
+                $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
 
-                if ($indexDef['type'] === 'UNIQUE') {
+                // Add appropriate index type
+                if ($indexType === 'FULLTEXT') {
+                    $sql .= ",\n  FULLTEXT KEY `{$indexName}` ({$indexColumns})";
+                }
+                elseif ($indexDef['unique'] ?? false) {
                     $sql .= ",\n  UNIQUE KEY `{$indexName}` ({$indexColumns})";
-                } else {
+                }
+                else {
                     $sql .= ",\n  KEY `{$indexName}` ({$indexColumns})";
                 }
             }
@@ -419,6 +430,13 @@ class TableExport extends TableCommand
             }
         }
 
+        // Add CHECK constraints if exist (MySQL 8.0.16+)
+        if (!empty($schema['check_constraints'])) {
+            foreach ($schema['check_constraints'] as $constraintName => $checkClause) {
+                $sql .= ",\n  CONSTRAINT `{$constraintName}` CHECK ({$checkClause})";
+            }
+        }
+
         $sql .= "\n)";
 
         // Add table options
@@ -432,6 +450,20 @@ class TableExport extends TableCommand
 
         if (!empty($schema['collation'])) {
             $sql .= " COLLATE={$schema['collation']}";
+        }
+
+        // Add table comment if exists
+        if (!empty($schema['table_comment'])) {
+            $sql .= " COMMENT='" . addslashes($schema['table_comment']) . "'";
+        }
+
+        // Add partitioning if exists
+        if (!empty($schema['partition'])) {
+            $partition = $schema['partition'];
+            $type = strtoupper($partition['type']);
+            $column = $partition['column'];
+            $count = $partition['count'];
+            $sql .= "\nPARTITION BY {$type}(`{$column}`)\nPARTITIONS {$count}";
         }
 
         $sql .= ";\n";
