@@ -233,12 +233,16 @@ class Roline
             'migration:status'    => Commands\Migration\MigrationStatus::class,
 
             // Database commands - Database-level operations
-            'db:seed'             => Commands\Database\DbSeed::class,
+            'db:list'             => Commands\Database\DbList::class,
+            'db:tables'           => Commands\Database\DbTables::class,
+            'db:create'           => Commands\Database\DbCreate::class,
+            'db:drop'             => Commands\Database\DbDrop::class,
+            'db:drop-tables'      => Commands\Database\DbDropTables::class,
+            'db:empty'            => Commands\Database\DbEmpty::class,
             'db:schema'           => Commands\Database\DbSchema::class,
+            'db:seed'             => Commands\Database\DbSeed::class,
             'db:export'           => Commands\Database\DbExport::class,
             'db:import'           => Commands\Database\DbImport::class,
-            'db:drop'             => Commands\Database\DbDrop::class,
-            'db:empty'            => Commands\Database\DbEmpty::class,
 
             // Cleanup commands - Maintenance and cache clearing
             'cleanup:cache'       => Commands\Cleanup\CleanupCache::class,
