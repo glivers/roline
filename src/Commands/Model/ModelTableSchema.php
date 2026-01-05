@@ -250,6 +250,18 @@ class ModelTableSchema extends ModelCommand
                 $this->line();
             }
 
+            // Query database for partition information
+            $partition = $schema->getExistingPartition($tableName);
+
+            // Display partition section if exists
+            if ($partition) {
+                $this->success('Partition:');
+                $this->line();
+                $type = strtoupper($partition['type']);
+                $this->line("  PARTITION BY {$type}({$partition['column']}) PARTITIONS {$partition['count']}");
+                $this->line();
+            }
+
             // Display closing border
             $this->line('=================================================');
             $this->line();
