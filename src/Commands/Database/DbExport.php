@@ -95,18 +95,13 @@
  * @version 1.0.0
  */
 
-use Roline\Output;
-use Roline\Utils\SchemaReader;
 use Rackage\Model;
 use Rackage\Registry;
+use Roline\Output;
+use Roline\Utils\SchemaReader;
 
 class DbExport extends DatabaseCommand
 {
-    /**
-     * Database connection instance for accessing real_escape_string()
-     */
-    public $instance;
-
     /**
      * Get command description for listing
      *
@@ -172,9 +167,6 @@ class DbExport extends DatabaseCommand
      */
     public function execute($arguments)
     {
-        // Get the current active database connection instance
-        $this->instance = Registry::get('database');
-
         try {
             // Get database name from configuration
             $dbConfig = Registry::database();
@@ -496,7 +488,7 @@ class DbExport extends DatabaseCommand
 
         // Query all rows from table (unbuffered - fetches one row at a time)
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::noBuffer()->sql($sql);
+        $result = Model::stream()->sql($sql);
 
         // Show initial message (no newline yet - we'll update on same line)
         echo "  → Exporting {$tableName}...";
@@ -538,15 +530,8 @@ class DbExport extends DatabaseCommand
             // Process each column value
             foreach ($columns as $column) {
                 $value = $row[$column];
-
-                // Handle NULL values with SQL NULL keyword
-                if ($value === null) {
-                    $values[] = 'NULL';
-                } else {
-                    // Escape value and wrap in quotes using real_escape_string
-                    $escaped = $this->instance->escape($value);
-                    $values[] = "'{$escaped}'";
-                }
+                // Model::quote() handles NULL, escaping, and quoting
+                $values[] = Model::quote($value);
             }
 
             // Add row to batch as value list: (val1, val2, val3)
