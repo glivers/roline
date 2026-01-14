@@ -18,8 +18,9 @@
  * @version 1.0.0
  */
 
-use Roline\Output;
+use Rackage\Model;
 use Rackage\Registry;
+use Roline\Output;
 
 class DbTables extends DatabaseCommand
 {
@@ -59,11 +60,6 @@ class DbTables extends DatabaseCommand
             $driver = $dbConfig['default'] ?? 'mysql';
             $config = $dbConfig[$driver] ?? [];
 
-            $host = $config['host'] ?? 'localhost';
-            $username = $config['username'] ?? 'root';
-            $password = $config['password'] ?? '';
-            $port = $config['port'] ?? 3306;
-
             // Get database name from argument or config
             $databaseName = !empty($arguments[0]) ? $arguments[0] : ($config['database'] ?? '');
 
@@ -72,17 +68,9 @@ class DbTables extends DatabaseCommand
                 exit(1);
             }
 
-            // Connect to MySQL
-            $conn = new \mysqli($host, $username, $password, '', $port);
-
-            if ($conn->connect_error) {
-                throw new \Exception("Connection failed: " . $conn->connect_error);
-            }
-
             // Check if database exists
-            $result = $conn->query("SHOW DATABASES LIKE '{$databaseName}'");
+            $result = Model::server()->sql("SHOW DATABASES LIKE '{$databaseName}'");
             if ($result->num_rows === 0) {
-                $conn->close();
                 $this->error("Database '{$databaseName}' does not exist!");
                 exit(1);
             }
@@ -93,7 +81,7 @@ class DbTables extends DatabaseCommand
                     WHERE TABLE_SCHEMA = '{$databaseName}'
                     ORDER BY TABLE_NAME";
 
-            $result = $conn->query($sql);
+            $result = Model::server()->sql($sql);
 
             $this->line();
             $this->info("Database: {$databaseName}");
@@ -102,7 +90,6 @@ class DbTables extends DatabaseCommand
             if ($result->num_rows === 0) {
                 $this->info("No tables found.");
                 $this->line();
-                $conn->close();
                 exit(0);
             }
 
@@ -128,8 +115,6 @@ class DbTables extends DatabaseCommand
             $this->line();
             $this->info(count($tables) . " tables, ~" . number_format($totalRows) . " total rows");
             $this->line();
-
-            $conn->close();
 
         } catch (\Exception $e) {
             $this->error('Error: ' . $e->getMessage());
