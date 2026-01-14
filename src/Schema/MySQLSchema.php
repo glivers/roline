@@ -1026,7 +1026,7 @@ class MySQLSchema
 
         // Get database connection from Registry (already initialized and connected)
         try {
-            $this->connection = Registry::get('database');
+            $this->connection = Registry::get('database-sync');
         } catch (\Exception $e) {
             throw new \Exception("Failed to get database connection: " . $e->getMessage());
         }
@@ -1082,6 +1082,21 @@ class MySQLSchema
         $this->ensureConnection();
 
         $sql = "DROP TABLE IF EXISTS `{$tableName}`;";
+        return $this->connection->execute($sql);
+    }
+
+    /**
+     * Rename a table
+     *
+     * @param string $oldName Current table name
+     * @param string $newName New table name
+     * @return mixed Query result
+     */
+    public function renameTable($oldName, $newName)
+    {
+        $this->ensureConnection();
+
+        $sql = "RENAME TABLE `{$oldName}` TO `{$newName}`;";
         return $this->connection->execute($sql);
     }
 
@@ -1241,6 +1256,39 @@ class MySQLSchema
 
         $sql = "DELETE FROM `{$tableName}`";
         $this->connection->execute($sql);
+    }
+
+    /**
+     * Truncate table (reset with auto-increment reset)
+     *
+     * Truncates all rows from a table and resets the auto-increment counter
+     * to 1. This is much faster than DELETE for large tables. Temporarily
+     * disables foreign key checks to allow truncation of tables with FK
+     * references.
+     *
+     * @param string $tableName Name of table to truncate
+     * @return void
+     * @throws \Exception If truncate fails
+     */
+    public function truncateTable($tableName)
+    {
+        $this->ensureConnection();
+
+        // Disable foreign key checks temporarily
+        $this->connection->execute("SET FOREIGN_KEY_CHECKS=0");
+
+        try {
+            // Execute TRUNCATE
+            $sql = "TRUNCATE TABLE `{$tableName}`";
+            $result = $this->connection->execute($sql);
+
+            if (!$result) {
+                throw new \Exception($this->connection->lastError());
+            }
+        } finally {
+            // Always re-enable foreign key checks
+            $this->connection->execute("SET FOREIGN_KEY_CHECKS=1");
+        }
     }
 
     /**
@@ -1476,8 +1524,14 @@ class MySQLSchema
         $partition = $schema['partition'];
         $partitionColumn = $partition['column'];
 
+        // Build column lookup by name (columns array is numerically indexed)
+        $columnsByName = [];
+        foreach ($schema['columns'] as $colDef) {
+            $columnsByName[$colDef['name']] = $colDef;
+        }
+
         // 1. Check partition column exists in schema
-        if (!isset($schema['columns'][$partitionColumn])) {
+        if (!isset($columnsByName[$partitionColumn])) {
             throw new \Exception(
                 "Partition Validation Failed!\n\n" .
                 "  @partition {$partition['type']}({$partitionColumn}) {$partition['count']}\n\n" .
@@ -1490,7 +1544,7 @@ class MySQLSchema
         // 2. Check partition column is part of PRIMARY KEY
         // MySQL requirement: partition column must be in every unique key
         $primaryKeys = [];
-        foreach ($schema['columns'] as $colName => $colDef) {
+        foreach ($columnsByName as $colName => $colDef) {
             if (!empty($colDef['primary'])) {
                 $primaryKeys[] = $colName;
             }
