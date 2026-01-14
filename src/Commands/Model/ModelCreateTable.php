@@ -24,10 +24,10 @@
  *     protected $title;
  *
  *     @column @datetime
- *     protected $date_created;
+ *     protected $created_at;
  *
  * Auto-Fix Features:
- *   - Missing Timestamps - Offers to add date_created/date_modified properties
+ *   - Missing Timestamps - Offers to add created_at/updated_at properties
  *   - Missing Primary Key - Offers to add id property with @primary @autonumber
  *   - Automatically modifies model file with user confirmation
  *   - Preserves existing code structure and formatting
@@ -223,7 +223,7 @@ class ModelCreateTable extends ModelCommand
                 // Offer auto-fix based on specific error type
                 switch ($e->getErrorType()) {
                     case 'missing_timestamps':
-                        // Offer to add date_created and date_modified properties
+                        // Offer to add created_at and updated_at properties
                         $addFix = $this->confirm("Would you like me to add the missing timestamp properties to your model?");
 
                         if ($addFix) {
@@ -298,7 +298,7 @@ class ModelCreateTable extends ModelCommand
     /**
      * Add timestamp properties to model file
      *
-     * Automatically modifies the model file to add date_created and date_modified
+     * Automatically modifies the model file to add created_at and updated_at
      * properties with appropriate @column and @datetime annotations. Uses regex to
      * find an appropriate insertion point (before MODEL METHODS comment or after
      * last protected property).
@@ -323,15 +323,17 @@ class ModelCreateTable extends ModelCommand
 
         // Build timestamp property code with @column and @datetime annotations
         $timestampCode = "\n    /**\n" .
+                        "     * Timestamp when the record was first created\n" .
                         "     * @column\n" .
                         "     * @datetime\n" .
                         "     */\n" .
-                        "    protected \$date_created;\n\n" .
+                        "    protected \$created_at;\n\n" .
                         "    /**\n" .
+                        "     * Timestamp when the record was last modified\n" .
                         "     * @column\n" .
                         "     * @datetime\n" .
                         "     */\n" .
-                        "    protected \$date_modified;\n";
+                        "    protected \$updated_at;\n";
 
         // Try to find a good insertion point in model file
         if (preg_match('/(\n\s*\/\/ .*MODEL METHODS.*\n)/', $content, $matches, PREG_OFFSET_CAPTURE)) {
