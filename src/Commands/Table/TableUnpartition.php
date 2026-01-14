@@ -25,19 +25,13 @@
  * @version 1.0.0
  */
 
+use Rackage\Model;
 use Roline\Output;
 use Roline\Schema\MySQLSchema;
 use Roline\Utils\SchemaReader;
-use Rackage\Model;
-use Rackage\Registry;
 
 class TableUnpartition extends TableCommand
 {
-    /**
-     * Database connection instance
-     */
-    private $connection;
-
     /**
      * Batch size for copying rows
      */
@@ -81,9 +75,6 @@ class TableUnpartition extends TableCommand
 
     public function execute($arguments)
     {
-        // Get database connection
-        $this->connection = Registry::get('database');
-
         // Parse arguments
         if (empty($arguments[0])) {
             $this->error('Table name is required!');
@@ -177,12 +168,9 @@ class TableUnpartition extends TableCommand
         $createSQL = $this->generateCreateTableSQL($tableName, $newTable);
 
         // Drop if exists from failed previous attempt
-        $this->connection->execute("DROP TABLE IF EXISTS `{$newTable}`");
+        Model::sql("DROP TABLE IF EXISTS `{$newTable}`");
 
-        $result = $this->connection->execute($createSQL);
-        if (!$result) {
-            throw new \Exception("Failed to create new table: " . $this->connection->lastError());
-        }
+        Model::sql($createSQL);
         $this->success("  Created {$newTable}");
 
         // Step 2: Copy data in batches
@@ -196,21 +184,18 @@ class TableUnpartition extends TableCommand
         $this->info("[3/4] Swapping tables (brief lock)...");
 
         // Drop old backup if exists
-        $this->connection->execute("DROP TABLE IF EXISTS `{$oldTable}`");
+        Model::sql("DROP TABLE IF EXISTS `{$oldTable}`");
 
         // Atomic rename swap
         $renameSQL = "RENAME TABLE `{$tableName}` TO `{$oldTable}`, `{$newTable}` TO `{$tableName}`";
-        $result = $this->connection->execute($renameSQL);
-        if (!$result) {
-            throw new \Exception("Failed to swap tables: " . $this->connection->lastError());
-        }
+        Model::sql($renameSQL);
         $this->success("  Tables swapped");
 
         // Step 4: Drop old table
         $this->line();
         $this->info("[4/4] Dropping old table...");
 
-        $this->connection->execute("DROP TABLE IF EXISTS `{$oldTable}`");
+        Model::sql("DROP TABLE IF EXISTS `{$oldTable}`");
         $this->success("  Cleanup complete");
     }
 
@@ -220,7 +205,7 @@ class TableUnpartition extends TableCommand
     private function generateCreateTableSQL($originalTable, $newTable)
     {
         // Get the original CREATE TABLE statement
-        $result = $this->connection->execute("SHOW CREATE TABLE `{$originalTable}`");
+        $result = Model::sql("SHOW CREATE TABLE `{$originalTable}`");
         $row = $result->fetch_assoc();
         $createSQL = $row['Create Table'];
 
@@ -245,7 +230,7 @@ class TableUnpartition extends TableCommand
         $pkColumn = $primaryKey[0]; // Use first PK column for ordering
 
         // Get total count
-        $countResult = $this->connection->execute("SELECT COUNT(*) as cnt FROM `{$sourceTable}`");
+        $countResult = Model::sql("SELECT COUNT(*) as cnt FROM `{$sourceTable}`");
         $countRow = $countResult->fetch_assoc();
         $totalRows = (int) $countRow['cnt'];
 
@@ -265,13 +250,12 @@ class TableUnpartition extends TableCommand
                     ORDER BY `{$pkColumn}`
                     LIMIT {$this->batchSize}";
 
-            $result = $this->connection->execute($sql);
+            Model::sql($sql);
 
-            if (!$result) {
-                throw new \Exception("Failed to copy data: " . $this->connection->lastError());
-            }
-
-            $affected = $this->connection->affectedRows();
+            // Get affected rows count
+            $affectedResult = Model::sql("SELECT ROW_COUNT() as affected");
+            $affectedRow = $affectedResult->fetch_assoc();
+            $affected = (int) $affectedRow['affected'];
 
             if ($affected === 0) {
                 break; // No more rows
@@ -280,7 +264,7 @@ class TableUnpartition extends TableCommand
             $copied += $affected;
 
             // Get last ID for next batch
-            $lastIdResult = $this->connection->execute(
+            $lastIdResult = Model::sql(
                 "SELECT MAX(`{$pkColumn}`) as last_id FROM `{$destTable}`"
             );
             $lastIdRow = $lastIdResult->fetch_assoc();
@@ -312,7 +296,7 @@ class TableUnpartition extends TableCommand
         $newTable = "{$tableName}_new";
 
         try {
-            $this->connection->execute("DROP TABLE IF EXISTS `{$newTable}`");
+            Model::sql("DROP TABLE IF EXISTS `{$newTable}`");
             $this->info("Cleaned up temporary table.");
         } catch (\Exception $e) {
             $this->warning("Cleanup failed - manually drop: {$newTable}");
