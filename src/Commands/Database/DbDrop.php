@@ -53,9 +53,10 @@
  * @version 1.0.0
  */
 
+use Rackage\Model;
+use Rackage\Registry;
 use Roline\Output;
 use Roline\Utils\SchemaReader;
-use Rackage\Registry;
 
 class DbDrop extends DatabaseCommand
 {
@@ -145,12 +146,6 @@ class DbDrop extends DatabaseCommand
                 exit(1);
             }
 
-            // Get connection config
-            $host = $config['host'] ?? 'localhost';
-            $username = $config['username'] ?? 'root';
-            $password = $config['password'] ?? '';
-            $port = $config['port'] ?? 3306;
-
             // Display extreme warning banner
             $this->line();
             $this->error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
@@ -158,24 +153,16 @@ class DbDrop extends DatabaseCommand
             $this->error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
             $this->line();
 
-            // Connect to MySQL without selecting a database
-            $conn = new \mysqli($host, $username, $password, '', $port);
-
-            if ($conn->connect_error) {
-                throw new \Exception("Connection failed: " . $conn->connect_error);
-            }
-
             // Check if database exists
-            $result = $conn->query("SHOW DATABASES LIKE '{$databaseName}'");
+            $result = Model::server()->sql("SHOW DATABASES LIKE '{$databaseName}'");
             if ($result->num_rows === 0) {
-                $conn->close();
                 $this->error("Database '{$databaseName}' does not exist!");
                 $this->line();
                 exit(1);
             }
 
             // Get table count for display
-            $result = $conn->query("SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{$databaseName}'");
+            $result = Model::server()->sql("SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{$databaseName}'");
             $row = $result->fetch_assoc();
             $tableCount = (int) $row['cnt'];
 
@@ -233,11 +220,7 @@ class DbDrop extends DatabaseCommand
             $this->info('Dropping database...');
 
             // Execute DROP DATABASE statement
-            if (!$conn->query("DROP DATABASE `{$databaseName}`")) {
-                throw new \Exception("Failed to drop database: " . $conn->error);
-            }
-
-            $conn->close();
+            Model::server()->sql("DROP DATABASE `{$databaseName}`");
 
             // Database dropped successfully
             $this->line();
