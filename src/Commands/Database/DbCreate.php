@@ -24,8 +24,9 @@
  * @version 1.0.0
  */
 
-use Roline\Output;
+use Rackage\Model;
 use Rackage\Registry;
+use Roline\Output;
 
 class DbCreate extends DatabaseCommand
 {
@@ -139,25 +140,16 @@ class DbCreate extends DatabaseCommand
             $this->info("Collation: {$collation}");
             $this->line();
 
-            // Connect to MySQL WITHOUT selecting a database
-            $conn = new \mysqli($host, $username, $password, '', $port);
-
-            if ($conn->connect_error) {
-                throw new \Exception("Connection failed: " . $conn->connect_error);
-            }
-
             // Check if database already exists
-            $result = $conn->query("SHOW DATABASES LIKE '{$databaseName}'");
+            $result = Model::server()->sql("SHOW DATABASES LIKE '{$databaseName}'");
             $exists = $result->num_rows > 0;
 
             if ($exists) {
                 if ($ifNotExists) {
                     $this->info("Database '{$databaseName}' already exists. Skipping.");
                     $this->line();
-                    $conn->close();
                     exit(0);
                 } else {
-                    $conn->close();
                     $this->error("Database '{$databaseName}' already exists!");
                     $this->line();
                     $this->info("Use --if-not-exists to skip if already exists.");
@@ -168,13 +160,7 @@ class DbCreate extends DatabaseCommand
             }
 
             // Create the database
-            $sql = "CREATE DATABASE `{$databaseName}` CHARACTER SET {$charset} COLLATE {$collation}";
-
-            if (!$conn->query($sql)) {
-                throw new \Exception("Failed to create database: " . $conn->error);
-            }
-
-            $conn->close();
+            Model::server()->sql("CREATE DATABASE `{$databaseName}` CHARACTER SET {$charset} COLLATE {$collation}");
 
             $this->success("Database '{$databaseName}' created successfully!");
             $this->line();
