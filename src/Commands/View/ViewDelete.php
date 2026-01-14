@@ -140,13 +140,33 @@ class ViewDelete extends ViewCommand
         // Permanently delete directory and all contents (cannot be undone)
         $result = File::deleteDir($viewDir);
 
-        if ($result->success)
-        {
+        if ($result->success) {
             // Deletion successful - report to user
             $this->success("View directory deleted: {$viewDir}");
+
+            // Check if associated CSS file exists
+            $cssFile = "public/css/{$name}.css";
+
+            if (file_exists($cssFile)) {
+                $this->line();
+                $cssConfirmed = $this->confirm("Also delete {$cssFile}?");
+
+                if ($cssConfirmed) {
+                    $cssResult = File::delete($cssFile);
+
+                    if ($cssResult->success) {
+                        $this->success("CSS file deleted: {$cssFile}");
+                    }
+                    else {
+                        $this->error("Failed to delete CSS file: {$cssResult->errorMessage}");
+                    }
+                }
+                else {
+                    $this->info("CSS file kept: {$cssFile}");
+                }
+            }
         }
-        else
-        {
+        else {
             // Deletion failed - show error details
             $this->error("Failed to delete view directory: {$result->errorMessage}");
             exit(1);
