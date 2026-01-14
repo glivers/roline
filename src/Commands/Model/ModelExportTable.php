@@ -67,19 +67,13 @@
  * @version 1.0.0
  */
 
+use Rackage\Model;
 use Roline\Output;
 use Roline\Schema\MySQLSchema;
 use Roline\Utils\SchemaReader;
-use Rackage\Model;
-use Rackage\Registry;
 
 class ModelExportTable extends ModelCommand
 {
-    /**
-     * Database connection instance for accessing real_escape_string()
-     */
-    public $instance;
-
     /**
      * Get command description for listing
      *
@@ -147,9 +141,6 @@ class ModelExportTable extends ModelCommand
      */
     public function execute($arguments)
     {
-        // Get the current active database connection instance
-        $this->instance = Registry::get('database');
-
         // Validate model name argument is provided and normalize (ucfirst, remove 'Model' suffix)
         if (empty($arguments[0])) {
             $this->error('Model name is required!');
@@ -287,7 +278,7 @@ class ModelExportTable extends ModelCommand
 
         // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::noBuffer()->sql($sql);
+        $result = Model::stream()->sql($sql);
 
         if (!$result) {
             file_put_contents($filepath, "-- No data in table '{$tableName}'\n");
@@ -347,13 +338,8 @@ class ModelExportTable extends ModelCommand
 
             foreach ($columns as $column) {
                 $value = $row[$column];
-
-                if ($value === null) {
-                    $values[] = 'NULL';
-                } else {
-                    $escaped = $this->instance->escape($value);
-                    $values[] = "'{$escaped}'";
-                }
+                // Model::quote() handles NULL, escaping, and quoting
+                $values[] = Model::quote($value);
             }
 
             // Add row to batch
@@ -415,7 +401,7 @@ class ModelExportTable extends ModelCommand
     {
         // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::noBuffer()->sql($sql);
+        $result = Model::stream()->sql($sql);
 
         // Validate query succeeded
         if (!$result) {
