@@ -10,8 +10,8 @@
         }
     ],
     "require": {
-        "php": ">=7.4",
-        "glivers/rackage": "3.*"
+        "php": ">=8.0.0",
+        "glivers/rackage": "^3.0"
     },
     "autoload": {
         "psr-4": { 
