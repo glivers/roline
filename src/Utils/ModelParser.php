@@ -254,18 +254,18 @@ class ModelParser
 
         // Check for timestamp columns if timestamps are enabled
         if ($schema['timestamps']) {
-            $hasDateCreated = false;
-            $hasDateModified = false;
+            $hasCreatedAt = false;
+            $hasUpdatedAt = false;
 
             foreach ($schema['columns'] as $column) {
-                if ($column['name'] === 'date_created') $hasDateCreated = true;
-                if ($column['name'] === 'date_modified') $hasDateModified = true;
+                if ($column['name'] === 'created_at') $hasCreatedAt = true;
+                if ($column['name'] === 'updated_at') $hasUpdatedAt = true;
             }
 
-            if (!$hasDateCreated || !$hasDateModified) {
+            if (!$hasCreatedAt || !$hasUpdatedAt) {
                 $missing = [];
-                if (!$hasDateCreated) $missing[] = 'date_created';
-                if (!$hasDateModified) $missing[] = 'date_modified';
+                if (!$hasCreatedAt) $missing[] = 'created_at';
+                if (!$hasUpdatedAt) $missing[] = 'updated_at';
 
                 throw new Exceptions(
                     "Model has \$timestamps = true but missing: " . implode(', ', $missing) . "\n\n" .
@@ -273,15 +273,17 @@ class ModelParser
                     "  Either add the timestamp columns OR set \$timestamps = false\n\n" .
                     "Add timestamp columns:\n" .
                     "  /**\n" .
+                    "   * Timestamp when the record was first created\n" .
                     "   * @column\n" .
                     "   * @datetime\n" .
                     "   */\n" .
-                    "  protected \$date_created;\n\n" .
+                    "  protected \$created_at;\n\n" .
                     "  /**\n" .
+                    "   * Timestamp when the record was last modified\n" .
                     "   * @column\n" .
                     "   * @datetime\n" .
                     "   */\n" .
-                    "  protected \$date_modified;\n\n" .
+                    "  protected \$updated_at;\n\n" .
                     "Or disable timestamps:\n" .
                     "  protected static \$timestamps = false;",
                     'missing_timestamps',
