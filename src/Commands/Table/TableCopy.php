@@ -19,17 +19,12 @@
  * @version 1.0.0
  */
 
+use Rackage\Model;
 use Roline\Output;
 use Roline\Schema\MySQLSchema;
-use Rackage\Registry;
 
 class TableCopy extends TableCommand
 {
-    /**
-     * Database connection instance
-     */
-    private $connection;
-
     public function description()
     {
         return 'Copy table (structure + data)';
@@ -61,9 +56,6 @@ class TableCopy extends TableCommand
 
     public function execute($arguments)
     {
-        // Get database connection
-        $this->connection = Registry::get('database');
-
         // Parse arguments
         if (empty($arguments[0])) {
             $this->error('Source table name is required!');
@@ -99,7 +91,7 @@ class TableCopy extends TableCommand
             }
 
             // Drop existing
-            $this->connection->execute("DROP TABLE `{$destTable}`");
+            Model::sql("DROP TABLE `{$destTable}`");
         }
 
         // Get estimated row count (fast - uses INFORMATION_SCHEMA)
@@ -121,24 +113,20 @@ class TableCopy extends TableCommand
             // Step 1: Copy structure
             $this->info("Creating table structure...");
             $sql = "CREATE TABLE `{$destTable}` LIKE `{$sourceTable}`";
-            $result = $this->connection->execute($sql);
-
-            if (!$result) {
-                throw new \Exception("Failed to create table: " . $this->connection->lastError());
-            }
+            Model::sql($sql);
 
             // Step 2: Copy data (unless --empty)
             if (!$emptyOnly && $rowCount > 0) {
                 $this->info("Copying data...");
 
                 $sql = "INSERT INTO `{$destTable}` SELECT * FROM `{$sourceTable}`";
-                $result = $this->connection->execute($sql);
+                Model::sql($sql);
 
-                if (!$result) {
-                    throw new \Exception("Failed to copy data: " . $this->connection->lastError());
-                }
+                // Get actual count of copied rows
+                $result = Model::sql("SELECT COUNT(*) as count FROM `{$destTable}`");
+                $row = $result->fetch_assoc();
+                $copied = $row['count'];
 
-                $copied = $this->connection->affectedRows();
                 $this->success("  Copied " . number_format($copied) . " rows");
             }
 
@@ -153,7 +141,7 @@ class TableCopy extends TableCommand
             $this->error("Copy failed: " . $e->getMessage());
 
             // Cleanup on failure
-            $this->connection->execute("DROP TABLE IF EXISTS `{$destTable}`");
+            Model::sql("DROP TABLE IF EXISTS `{$destTable}`");
             exit(1);
         }
     }
