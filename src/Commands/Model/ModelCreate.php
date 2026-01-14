@@ -9,7 +9,7 @@
  *
  * Features:
  *   - Auto-adds 'Model' suffix if not provided
- *   - Auto-generates plural table name
+ *   - Auto-generates plural table name (or accepts custom name)
  *   - Checks for existing models to prevent overwriting
  *   - Supports custom stub templates
  *   - Creates models directory if needed
@@ -21,8 +21,10 @@
  *   - Extends Rackage\Model
  *
  * Usage:
- *   php roline model:create Post
- *   php roline model:create PostModel
+ *   php roline model:create Post                  (auto: table 'posts')
+ *   php roline model:create PostModel             (auto: table 'posts')
+ *   php roline model:create Data datum            (custom table for edge cases)
+ *   php roline model:create Sheep sheep           (singular = plural)
  *
  * @author Geoffrey Okongo <code@rachie.dev>
  * @copyright 2015 - 2050 Geoffrey Okongo
@@ -34,6 +36,7 @@
  */
 
 use Rackage\File;
+use Rackage\Registry;
 
 class ModelCreate extends ModelCommand
 {
@@ -44,7 +47,7 @@ class ModelCreate extends ModelCommand
 
     public function usage()
     {
-        return '<Model|required>';
+        return '<Model|required> [table|optional]';
     }
 
     public function execute($arguments)
@@ -59,9 +62,10 @@ class ModelCreate extends ModelCommand
             exit(1);
         }
 
-        // Generate plural table name using simple pluralization
+        // Use provided table name or auto-generate plural form
         // Example: 'Post' becomes 'posts', 'User' becomes 'users'
-        $tableName = $this->pluralize($name);
+        // Custom: model:create Data datum (for edge cases)
+        $tableName = $arguments[1] ?? $this->pluralize($name);
 
         // Load stub template - custom stubs take priority over defaults
         // This allows developers to customize generated model structure
@@ -82,6 +86,13 @@ class ModelCreate extends ModelCommand
         $content = str_replace('{{ModelName}}', $name, $stub->content);
         $content = str_replace('{{TableName}}', $tableName, $content);
 
+        // Replace metadata placeholders from settings
+        $settings = Registry::settings();
+        $content = str_replace('{{author}}', $settings['author'] ?? 'Your Name', $content);
+        $content = str_replace('{{copyright}}', $settings['copyright'] ?? 'Copyright (c) ' . date('Y'), $content);
+        $content = str_replace('{{license}}', $settings['license'] ?? 'MIT License', $content);
+        $content = str_replace('{{version}}', $settings['version'] ?? '1.0.0', $content);
+
         // Ensure target directory exists before writing
         $this->ensureModelsDir();
 
@@ -92,7 +103,9 @@ class ModelCreate extends ModelCommand
         if ($result->success)
         {
             $this->success("Model created: {$path}");
-            $this->info("Table name: {$tableName}");
+            $customTable = isset($arguments[1]);
+            $tableSource = $customTable ? '(custom)' : '(auto-pluralized)';
+            $this->info("Table name: {$tableName} {$tableSource}");
             $this->line();
 
             // Interactive prompt: ask if user wants to add properties
