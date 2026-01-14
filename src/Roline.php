@@ -197,24 +197,28 @@ class Roline
             'controller:create'   => Commands\Controller\ControllerCreate::class,
             'controller:append'   => Commands\Controller\ControllerAppend::class,
             'controller:delete'   => Commands\Controller\ControllerDelete::class,
+            'controller:rename'   => Commands\Controller\ControllerRename::class,
             'controller:complete' => Commands\Controller\ControllerComplete::class,
 
             // Model commands - Generate and manage model classes and tables
             'model:create'        => Commands\Model\ModelCreate::class,
             'model:delete'        => Commands\Model\ModelDelete::class,
             'model:append'        => Commands\Model\ModelAppend::class,
-            'model:create-table'  => Commands\Model\ModelCreateTable::class,
-            'model:update-table'  => Commands\Model\ModelUpdateTable::class,
-            'model:drop-table'    => Commands\Model\ModelDropTable::class,
-            'model:rename-table'  => Commands\Model\ModelRenameTable::class,
+            'model:rename'        => Commands\Model\ModelRename::class,
+            'model:table-create'  => Commands\Model\ModelCreateTable::class,
+            'model:table-update'  => Commands\Model\ModelUpdateTable::class,
+            'model:table-drop'    => Commands\Model\ModelDropTable::class,
+            'model:table-rename'  => Commands\Model\ModelRenameTable::class,
             'model:table-schema'  => Commands\Model\ModelTableSchema::class,
-            'model:empty-table'   => Commands\Model\ModelEmptyTable::class,
-            'model:export-table'  => Commands\Model\ModelExportTable::class,
+            'model:table-empty'   => Commands\Model\ModelEmptyTable::class,
+            'model:table-reset'   => Commands\Model\ModelResetTable::class,
+            'model:table-export'  => Commands\Model\ModelExportTable::class,
 
             // View commands - Create and manage view templates
             'view:create'         => Commands\View\ViewCreate::class,
             'view:add'            => Commands\View\ViewAdd::class,
             'view:delete'         => Commands\View\ViewDelete::class,
+            'view:rename'         => Commands\View\ViewRename::class,
 
             // Table commands - Direct database table operations (no models required)
             'table:create'        => Commands\Table\TableCreate::class,
@@ -222,6 +226,8 @@ class Roline
             'table:delete'        => Commands\Table\TableDelete::class,
             'table:rename'        => Commands\Table\TableRename::class,
             'table:schema'        => Commands\Table\TableSchema::class,
+            'table:empty'         => Commands\Table\TableEmpty::class,
+            'table:reset'         => Commands\Table\TableReset::class,
             'table:export'        => Commands\Table\TableExport::class,
             'table:partition'     => Commands\Table\TablePartition::class,
             'table:unpartition'   => Commands\Table\TableUnpartition::class,
@@ -231,6 +237,7 @@ class Roline
             'migration:run'       => Commands\Migration\MigrationRun::class,
             'migration:rollback'  => Commands\Migration\MigrationRollback::class,
             'migration:status'    => Commands\Migration\MigrationStatus::class,
+            'migration:reset'     => Commands\Migration\MigrationReset::class,
 
             // Database commands - Database-level operations
             'db:list'             => Commands\Database\DbList::class,
@@ -238,7 +245,7 @@ class Roline
             'db:create'           => Commands\Database\DbCreate::class,
             'db:drop'             => Commands\Database\DbDrop::class,
             'db:drop-tables'      => Commands\Database\DbDropTables::class,
-            'db:empty'            => Commands\Database\DbEmpty::class,
+            'db:reset'            => Commands\Database\DbReset::class,
             'db:schema'           => Commands\Database\DbSchema::class,
             'db:seed'             => Commands\Database\DbSeed::class,
             'db:export'           => Commands\Database\DbExport::class,
