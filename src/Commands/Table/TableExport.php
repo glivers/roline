@@ -18,20 +18,13 @@
  * @version 1.0.0
  */
 
+use Rackage\Model;
 use Roline\Output;
 use Roline\Schema\MySQLSchema;
 use Roline\Utils\SchemaReader;
-use Rackage\Model;
-use Rackage\Registry;
 
 class TableExport extends TableCommand
 {
-    /**
-     * Database connection instance for accessing real_escape_strin()
-     * 
-     */
-    public $instance;
-
     public function description()
     {
         return 'Export table data to SQL or CSV';
@@ -71,9 +64,6 @@ class TableExport extends TableCommand
 
     public function execute($arguments)
     {
-        //Get the current active database connection instance
-        $this->instance = Registry::get('database');
-
         if (empty($arguments[0])) {
             $this->error('Table name is required!');
             $this->line();
@@ -160,7 +150,7 @@ class TableExport extends TableCommand
 
         // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::noBuffer()->sql($sql);
+        $result = Model::stream()->sql($sql);
 
         if (!$result) {
             file_put_contents($filepath, "-- No data in table '{$tableName}'\n");
@@ -220,14 +210,8 @@ class TableExport extends TableCommand
 
             foreach ($columns as $column) {
                 $value = $row[$column];
-
-                if ($value === null) {
-                    $values[] = 'NULL';
-                } else {
-                    //$escaped = addslashes($value);
-                    $escaped = $this->instance->escape($value);
-                    $values[] = "'{$escaped}'";
-                }
+                // Model::quote() handles NULL, escaping, and quoting
+                $values[] = Model::quote($value);
             }
 
             // Add row to batch
@@ -277,7 +261,7 @@ class TableExport extends TableCommand
     {
         // Use unbuffered query for memory-efficient export
         $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::noBuffer()->sql($sql);
+        $result = Model::stream()->sql($sql);
 
         if (!$result) {
             throw new \Exception("Failed to query table");
