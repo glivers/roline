@@ -17,8 +17,9 @@
  * @version 1.0.0
  */
 
-use Roline\Output;
+use Rackage\Model;
 use Rackage\Registry;
+use Roline\Output;
 
 class DbList extends DatabaseCommand
 {
@@ -54,20 +55,10 @@ class DbList extends DatabaseCommand
             $config = $dbConfig[$driver] ?? [];
 
             $host = $config['host'] ?? 'localhost';
-            $username = $config['username'] ?? 'root';
-            $password = $config['password'] ?? '';
-            $port = $config['port'] ?? 3306;
             $currentDb = $config['database'] ?? '';
 
-            // Connect to MySQL without selecting a database
-            $conn = new \mysqli($host, $username, $password, '', $port);
-
-            if ($conn->connect_error) {
-                throw new \Exception("Connection failed: " . $conn->connect_error);
-            }
-
             // Get all databases (excluding system databases)
-            $result = $conn->query("SHOW DATABASES");
+            $result = Model::server()->sql("SHOW DATABASES");
 
             $this->line();
             $this->info("Databases on {$host}:");
@@ -84,7 +75,7 @@ class DbList extends DatabaseCommand
                 }
 
                 // Get tables for this database
-                $tablesResult = $conn->query(
+                $tablesResult = Model::server()->sql(
                     "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
                      WHERE TABLE_SCHEMA = '{$dbName}' ORDER BY TABLE_NAME"
                 );
@@ -117,8 +108,6 @@ class DbList extends DatabaseCommand
                 $this->line("  * = current database from config");
                 $this->line();
             }
-
-            $conn->close();
 
         } catch (\Exception $e) {
             $this->error('Error: ' . $e->getMessage());
