@@ -3,19 +3,20 @@
 /**
  * DbDrop Command
  *
- * EXTREMELY DESTRUCTIVE command that drops ALL tables in the database permanently.
+ * EXTREMELY DESTRUCTIVE command that drops the entire database permanently.
  * Implements triple confirmation system with database name typing requirement to prevent
  * accidental execution. Use with extreme caution - this action cannot be undone.
  *
  * What Gets Dropped:
- *   - ALL tables in the database (no exceptions)
- *   - ALL data in those tables (permanent data loss)
- *   - Table structures completely removed
- *   - Database itself remains (empty)
+ *   - The entire DATABASE (not just tables)
+ *   - ALL tables and their data
+ *   - ALL views, procedures, functions
+ *   - ALL users permissions on this database
+ *   - The database itself is completely removed from MySQL
  *
  * Confirmation System (Triple Safety):
  *   1. First Confirmation:
- *      - Shows list of ALL tables that will be dropped
+ *      - Shows database name and table count
  *      - Asks "Are you ABSOLUTELY sure?"
  *      - Can cancel at this point
  *
@@ -25,74 +26,20 @@
  *      - Ensures user is paying attention
  *
  *   3. Third Confirmation:
- *      - Final "Drop all tables now?" question
+ *      - Final "Drop database now?" question
  *      - Last chance to abort operation
  *
- * Safety Features:
- *   - Disables foreign key checks before dropping (SET FOREIGN_KEY_CHECKS=0)
- *   - Enables DROP TABLE IF EXISTS (prevents errors if table missing)
- *   - Re-enables foreign key checks after completion
- *   - Shows count of successfully dropped tables
- *   - Continues through errors (drops as many tables as possible)
- *   - Displays errors for tables that fail to drop
- *
  * Use Cases:
- *   - Resetting development database to clean state
- *   - Starting fresh before running migrations
- *   - Clearing test database between test runs
- *   - Removing all tables before database structure redesign
+ *   - Completely removing a database
+ *   - Cleaning up abandoned projects
+ *   - Starting completely fresh (must recreate database after)
  *   - NEVER use on production without extreme caution
  *
  * Important Warnings:
  *   - THIS IS PERMANENT - No undo, no rollback, no recovery
  *   - ALWAYS backup database before running (use db:export first)
- *   - Does NOT drop database itself (only tables)
- *   - Does NOT exclude any tables (migrations table also dropped)
- *   - Foreign key relationships removed along with tables
- *
- * Typical Workflow (Development):
- *   1. Developer wants fresh database state
- *   2. Runs: php roline db:export (backup first!)
- *   3. Runs: php roline db:drop
- *   4. Goes through triple confirmation
- *   5. All tables dropped
- *   6. Runs: php roline migration:run (rebuild schema)
- *   7. Runs: php roline db:seed (populate data)
- *
- * Example Output:
- *   WARNING: This will DROP ALL tables in the database!
- *
- *   Database: myapp_db
- *   Tables to drop: 8
- *
- *     → users
- *     → posts
- *     → comments
- *     → categories
- *     → tags
- *     → sessions
- *     → migrations
- *     → cache
- *
- *   This action CANNOT be undone!
- *
- *   Are you ABSOLUTELY sure you want to drop ALL myapp_db tables? (yes/no): yes
- *
- *   To confirm, please type the database name: myapp_db
- *   Database name: myapp_db
- *
- *   Final confirmation. Drop all tables now? (yes/no): yes
- *
- *   Dropping tables...
- *
- *     → Dropping users...
- *     → Dropping posts...
- *     → Dropping comments...
- *     (... continues for all tables ...)
- *
- *   Successfully dropped 8 tables!
- *
- *   Database 'myapp_db' is now empty.
+ *   - You will need to recreate the database manually after
+ *   - Application will fail to connect after database is dropped
  *
  * Usage:
  *   php roline db:drop
@@ -106,10 +53,10 @@
  * @version 1.0.0
  */
 
-use Roline\Output;
-use Roline\Utils\SchemaReader;
 use Rackage\Model;
 use Rackage\Registry;
+use Roline\Output;
+use Roline\Utils\SchemaReader;
 
 class DbDrop extends DatabaseCommand
 {
@@ -120,7 +67,7 @@ class DbDrop extends DatabaseCommand
      */
     public function description()
     {
-        return 'Drop all database tables';
+        return 'Drop the entire database';
     }
 
     /**
@@ -130,7 +77,7 @@ class DbDrop extends DatabaseCommand
      */
     public function usage()
     {
-        return '';
+        return '[database]';
     }
 
     /**
@@ -146,27 +93,37 @@ class DbDrop extends DatabaseCommand
         parent::help();
 
         Output::info('Description:');
-        Output::line('  Drops ALL tables in the database. This is EXTREMELY DESTRUCTIVE!');
+        Output::line('  Drops the ENTIRE DATABASE. This is EXTREMELY DESTRUCTIVE!');
+        Output::line('  The database must be recreated manually after this operation.');
+        Output::line();
+
+        Output::info('Arguments:');
+        Output::line('  [database]  Optional database name (defaults to config)');
         Output::line();
 
         Output::info('Examples:');
-        Output::line('  php roline db:drop');
+        Output::line('  php roline db:drop              # Drop database from config');
+        Output::line('  php roline db:drop myapp        # Drop "myapp"');
         Output::line();
 
         Output::info('Warning:');
-        Output::line('  - This will DROP ALL tables including data!');
+        Output::line('  - This will DROP THE ENTIRE DATABASE!');
+        Output::line('  - All tables, views, procedures, and data will be lost!');
         Output::line('  - This action CANNOT be undone!');
         Output::line('  - Multiple confirmations required');
+        Output::line();
+
+        Output::info('See also:');
+        Output::line('  db:drop-tables  - Drop all tables (keeps database)');
+        Output::line('  db:empty        - Empty tables (TRUNCATE, keeps structure)');
         Output::line();
     }
 
     /**
-     * Execute database table drop operation
+     * Execute database drop operation
      *
-     * Drops ALL tables in database after triple confirmation (yes/no, type database
-     * name, final yes/no). Shows all tables before confirmation, disables foreign key
-     * checks during operation, continues through errors, and displays summary of
-     * successfully dropped tables.
+     * Drops the entire database after triple confirmation (yes/no, type database
+     * name, final yes/no).
      *
      * @param array $arguments Command arguments (none required)
      * @return void Exits with status 0 on cancel/success, 1 on failure
@@ -174,44 +131,59 @@ class DbDrop extends DatabaseCommand
     public function execute($arguments)
     {
         try {
-            // Get database name from configuration
+            // Get database configuration
             $dbConfig = Registry::database();
             $driver = $dbConfig['default'] ?? 'mysql';
-            $databaseName = $dbConfig[$driver]['database'] ?? 'database';
+            $config = $dbConfig[$driver] ?? [];
+
+            // Get database name from argument or config
+            $databaseName = !empty($arguments[0]) ? $arguments[0] : ($config['database'] ?? '');
+
+            if (empty($databaseName)) {
+                $this->error('No database name specified!');
+                $this->line();
+                $this->info('Usage: php roline db:drop [database]');
+                exit(1);
+            }
 
             // Display extreme warning banner
             $this->line();
-            $this->error('WARNING: This will DROP ALL tables in the database!');
+            $this->error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+            $this->error('WARNING: This will DROP THE ENTIRE DATABASE!');
+            $this->error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
             $this->line();
 
-            // Get all tables from database
-            $schemaReader = new SchemaReader();
-            $tables = $schemaReader->getTables();
-
-            // Check if database has any tables
-            if (empty($tables)) {
-                $this->info('No tables found in database.');
+            // Check if database exists
+            $result = Model::server()->sql("SHOW DATABASES LIKE '{$databaseName}'");
+            if ($result->num_rows === 0) {
+                $this->error("Database '{$databaseName}' does not exist!");
                 $this->line();
-                exit(0);
+                exit(1);
             }
 
-            // Display database info and table count
+            // Get table count for display
+            $result = Model::server()->sql("SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{$databaseName}'");
+            $row = $result->fetch_assoc();
+            $tableCount = (int) $row['cnt'];
+
+            // Display database info
             $this->info("Database: {$databaseName}");
-            $this->info('Tables to drop: ' . count($tables));
+            $this->info("Tables: {$tableCount}");
             $this->line();
 
-            // Show all tables that will be dropped
-            foreach ($tables as $tableName) {
-                $this->line("  → {$tableName}");
-            }
-
-            // Emphasize irreversibility
+            // Emphasize what will happen
+            $this->error('This will PERMANENTLY DELETE:');
+            $this->error('  - The database itself');
+            $this->error('  - ALL tables and their data');
+            $this->error('  - ALL views, procedures, functions');
+            $this->error('  - ALL stored routines');
             $this->line();
             $this->error('This action CANNOT be undone!');
+            $this->error('You will need to recreate the database manually!');
             $this->line();
 
             // First confirmation - general agreement
-            $confirmed1 = $this->confirm("Are you ABSOLUTELY sure you want to drop ALL {$databaseName} tables?");
+            $confirmed1 = $this->confirm("Are you ABSOLUTELY sure you want to DROP database '{$databaseName}'?");
 
             if (!$confirmed1) {
                 // User cancelled at first confirmation
@@ -223,7 +195,7 @@ class DbDrop extends DatabaseCommand
             // Second confirmation - require typing database name
             $this->line();
             $this->info("To confirm, please type the database name: {$databaseName}");
-            $typed = $this->prompt('Database name:');
+            $typed = $this->ask('Database name:');
 
             // Validate typed database name matches
             if ($typed !== $databaseName) {
@@ -234,7 +206,7 @@ class DbDrop extends DatabaseCommand
 
             // Third confirmation - final check
             $this->line();
-            $confirmed3 = $this->confirm('Final confirmation. Drop all tables now?');
+            $confirmed3 = $this->confirm('FINAL WARNING: Drop the entire database now?');
 
             if (!$confirmed3) {
                 // User cancelled at final confirmation
@@ -243,45 +215,22 @@ class DbDrop extends DatabaseCommand
                 exit(0);
             }
 
-            // All confirmations passed - begin dropping tables
+            // All confirmations passed - drop the database
             $this->line();
-            $this->info('Dropping tables...');
+            $this->info('Dropping database...');
+
+            // Execute DROP DATABASE statement
+            Model::server()->sql("DROP DATABASE `{$databaseName}`");
+
+            // Database dropped successfully
             $this->line();
-
-            // Disable foreign key checks for safe table dropping
-            Model::rawQuery('SET FOREIGN_KEY_CHECKS=0');
-
-            // Track successfully dropped tables count
-            $droppedCount = 0;
-
-            // Drop each table (continue through errors)
-            foreach ($tables as $tableName) {
-                try {
-                    $this->info("  → Dropping {$tableName}...");
-
-                    // Execute DROP TABLE statement
-                    Model::rawQuery("DROP TABLE IF EXISTS `{$tableName}`");
-
-                    // Increment dropped count
-                    $droppedCount++;
-                } catch (\Exception $e) {
-                    // Table drop failed - display error but continue
-                    $this->error("  ✗ Failed to drop {$tableName}: " . $e->getMessage());
-                }
-            }
-
-            // Re-enable foreign key checks
-            Model::rawQuery('SET FOREIGN_KEY_CHECKS=1');
-
-            // All tables processed - display summary
+            $this->success("Database '{$databaseName}' has been dropped!");
             $this->line();
-            $this->success("Successfully dropped {$droppedCount} tables!");
-            $this->line();
-            $this->info("Database '{$databaseName}' is now empty.");
+            $this->info("Recreate with: php roline db:create {$databaseName}");
             $this->line();
 
         } catch (\Exception $e) {
-            // Drop operation failed (database connection, query error, etc.)
+            // Drop operation failed (database connection, query error, permissions, etc.)
             $this->line();
             $this->error('Drop operation failed!');
             $this->line();

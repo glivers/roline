@@ -46,7 +46,7 @@ class Migration
             PRIMARY KEY (`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
-        Model::rawQuery($sql);
+        Model::sql($sql);
     }
 
     /**
@@ -58,7 +58,7 @@ class Migration
     {
         $this->ensureTableExists();
 
-        $result = Model::rawQuery("SELECT `version` FROM `{$this->table}` ORDER BY `id` ASC");
+        $result = Model::sql("SELECT `version` FROM `{$this->table}` ORDER BY `id` ASC");
 
         $migrations = [];
         if ($result && $result->num_rows > 0) {
@@ -108,7 +108,7 @@ class Migration
 
         $escapedVersion = addslashes($version);
         $sql = "INSERT INTO `{$this->table}` (`version`, `applied_at`) VALUES ('{$escapedVersion}', NOW())";
-        Model::rawQuery($sql);
+        Model::sql($sql);
     }
 
     /**
@@ -121,7 +121,7 @@ class Migration
     {
         $escapedVersion = addslashes($version);
         $sql = "DELETE FROM `{$this->table}` WHERE `version` = '{$escapedVersion}'";
-        Model::rawQuery($sql);
+        Model::sql($sql);
     }
 
     /**
@@ -135,7 +135,7 @@ class Migration
         $this->ensureTableExists();
 
         $sql = "SELECT `version` FROM `{$this->table}` ORDER BY `id` DESC LIMIT " . (int)$count;
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $migrations = [];
         if ($result && $result->num_rows > 0) {

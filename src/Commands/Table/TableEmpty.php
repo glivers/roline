@@ -1,7 +1,7 @@
-<?php namespace Roline\Commands\Model;
+<?php namespace Roline\Commands\Table;
 
 /**
- * ModelEmptyTable Command
+ * TableEmpty Command
  *
  * Empties a database table by deleting all rows while preserving the table structure.
  * This is a destructive operation that removes ALL data but keeps the table schema,
@@ -18,7 +18,7 @@
  *   - Auto-increment counter (continues from last value)
  *   - Triggers
  *
- * Why This Instead of TRUNCATE:
+ * Why This Instead of TRUNCATE (table:reset):
  *   - DELETE respects foreign key constraints (TRUNCATE can fail)
  *   - Auto-increment counter preserved (useful for testing)
  *   - Can be rolled back if in transaction
@@ -27,8 +27,8 @@
  * Safety Features:
  *   - Displays warning about data loss
  *   - Requires explicit user confirmation
- *   - Shows table name and row count before deletion
- *   - Validates model and table exist first
+ *   - Shows table name before deletion
+ *   - Validates table exists first
  *
  * When to Use:
  *   - Clearing test data during development
@@ -37,27 +37,13 @@
  *   - Cleaning up development/testing tables
  *   - NEVER on production without backup!
  *
- * Typical Workflow:
- *   1. User runs command with model name
- *   2. Command displays warning and row count
- *   3. User confirms deletion
- *   4. DELETE FROM table executed
- *   5. All rows removed, table structure preserved
- *
- * Important Warnings:
- *   - Cannot be undone after execution (unless in transaction)
- *   - All data permanently lost
- *   - Backup before running on production
- *   - Auto-increment counter NOT reset
- *
  * Usage:
- *   php roline model:empty-table User
- *   php roline model:empty-table Post
+ *   php roline table:empty <tablename>
  *
  * @author Geoffrey Okongo <code@rachie.dev>
  * @copyright 2015 - 2050 Geoffrey Okongo
  * @category Roline
- * @package Roline\Commands\Model
+ * @package Roline\Commands\Table
  * @link https://github.com/glivers/roline
  * @license http://opensource.org/licenses/MIT MIT License
  * @version 1.0.0
@@ -66,7 +52,7 @@
 use Roline\Output;
 use Roline\Schema\MySQLSchema;
 
-class ModelEmptyTable extends ModelCommand
+class TableEmpty extends TableCommand
 {
     /**
      * Get command description for listing
@@ -75,17 +61,17 @@ class ModelEmptyTable extends ModelCommand
      */
     public function description()
     {
-        return 'Empty table (delete all rows)';
+        return 'Empty table (delete all rows, preserve auto-increment)';
     }
 
     /**
      * Get command usage syntax
      *
-     * @return string Usage syntax showing required model name
+     * @return string Usage syntax showing required table name
      */
     public function usage()
     {
-        return '<Model|required>';
+        return '<tablename|required>';
     }
 
     /**
@@ -101,12 +87,12 @@ class ModelEmptyTable extends ModelCommand
         parent::help();
 
         Output::info('Arguments:');
-        Output::line('  <Model|required>  Model class name (without "Model" suffix)');
+        Output::line('  <tablename|required>  Database table name');
         Output::line();
 
         Output::info('Examples:');
-        Output::line('  php roline model:empty-table User');
-        Output::line('  php roline model:empty-table Post');
+        Output::line('  php roline table:empty users');
+        Output::line('  php roline table:empty temp_data');
         Output::line();
 
         Output::info('What this does:');
@@ -114,6 +100,11 @@ class ModelEmptyTable extends ModelCommand
         Output::line('  - Preserves table structure and indexes');
         Output::line('  - Keeps auto-increment counter (unlike TRUNCATE)');
         Output::line('  - Respects foreign key constraints');
+        Output::line();
+
+        Output::info('Difference from table:reset:');
+        Output::line('  table:empty  - Uses DELETE (slow, safe, preserves auto-increment)');
+        Output::line('  table:reset  - Uses TRUNCATE (fast, resets auto-increment)');
         Output::line();
 
         Output::info('Warning:');
@@ -125,51 +116,24 @@ class ModelEmptyTable extends ModelCommand
     /**
      * Execute table emptying with confirmation
      *
-     * Deletes all rows from a database table after extracting table name from model
-     * and requiring explicit confirmation from user. Displays warning and shows
-     * current row count before deletion. Executes DELETE FROM statement.
+     * Deletes all rows from a database table after requiring explicit confirmation
+     * from user. Displays warning and shows current row count before deletion.
+     * Executes DELETE FROM statement.
      *
-     * @param array $arguments Command arguments (model name at index 0)
+     * @param array $arguments Command arguments (table name at index 0)
      * @return void Exits with status 0 on cancel, 1 on failure
      */
     public function execute($arguments)
     {
-        // Validate model name argument is provided and normalize (ucfirst, remove 'Model' suffix)
+        // Validate table name argument is provided
         if (empty($arguments[0])) {
-            $this->error('Model name is required!');
+            $this->error('Table name is required!');
             $this->line();
-            $this->info('Usage: php roline model:empty-table <Model>');
+            $this->info('Usage: php roline table:empty <tablename>');
             exit(1);
         }
 
-        // Normalize model name (ucfirst + remove 'Model' suffix)
-        $modelName = $this->validateName($arguments[0]);
-        $modelClass = "Models\\{$modelName}Model";
-
-        // Check if model class exists via autoloader
-        if (!class_exists($modelClass)) {
-            $this->error("Model class not found: {$modelClass}");
-            exit(1);
-        }
-
-        // Extract table name from model's protected static $table property
-        try {
-            // Use reflection to access protected static property
-            $reflection = new \ReflectionClass($modelClass);
-            $tableProperty = $reflection->getProperty('table');
-            $tableProperty->setAccessible(true);
-            $tableName = $tableProperty->getValue();
-
-            // Validate table name is defined
-            if (empty($tableName)) {
-                $this->error('Model does not have a table name defined!');
-                exit(1);
-            }
-        } catch (\Exception $e) {
-            // Reflection failed
-            $this->error('Error reading model: ' . $e->getMessage());
-            exit(1);
-        }
+        $tableName = $arguments[0];
 
         // Create schema instance for database operations
         $schema = new MySQLSchema();
@@ -177,8 +141,6 @@ class ModelEmptyTable extends ModelCommand
         // Validate table exists in database
         if (!$schema->tableExists($tableName)) {
             $this->error("Table '{$tableName}' does not exist!");
-            $this->line();
-            $this->info("Create it first: php roline model:create-table {$modelName}");
             exit(1);
         }
 

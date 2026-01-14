@@ -219,8 +219,8 @@ class DbSchema extends DatabaseCommand
      * Display schema for a single table
      *
      * Outputs formatted table structure including column definitions with data types,
-     * constraints, defaults, primary key information, and index details. Provides
-     * hierarchical indentation for readability.
+     * constraints, defaults, primary key information, foreign key relationships,
+     * and index details. Provides hierarchical indentation for readability.
      *
      * @param string $tableName Table name to display
      * @param SchemaReader $schemaReader Schema reader instance for querying
@@ -264,8 +264,19 @@ class DbSchema extends DatabaseCommand
                 $parts[] = strtoupper($columnDef['extra']);
             }
 
+            // Add column comment if exists
+            if (!empty($columnDef['comment'])) {
+                $parts[] = "-- {$columnDef['comment']}";
+            }
+
             // Display complete column definition with indentation
             $this->line('  ' . implode(' ', $parts));
+        }
+
+        // Display table comment if exists
+        if (!empty($schema['table_comment'])) {
+            $this->line();
+            $this->line("  COMMENT: {$schema['table_comment']}");
         }
 
         // Display primary key information if exists
@@ -277,22 +288,76 @@ class DbSchema extends DatabaseCommand
             $this->line("  PRIMARY KEY: {$pkColumns}");
         }
 
+        // Display foreign key information if exists
+        if (!empty($schema['foreign_keys'])) {
+            $this->line();
+            $this->line('  FOREIGN KEYS:');
+
+            // Display each foreign key with referenced table and actions
+            foreach ($schema['foreign_keys'] as $constraintName => $fk) {
+                $fkDef = "{$fk['column']} → {$fk['referenced_table']}({$fk['referenced_column']})";
+
+                // Add ON DELETE and ON UPDATE actions
+                $actions = [];
+                if (!empty($fk['on_delete']) && $fk['on_delete'] !== 'RESTRICT') {
+                    $actions[] = "ON DELETE {$fk['on_delete']}";
+                }
+                if (!empty($fk['on_update']) && $fk['on_update'] !== 'RESTRICT') {
+                    $actions[] = "ON UPDATE {$fk['on_update']}";
+                }
+
+                if (!empty($actions)) {
+                    $fkDef .= ' [' . implode(', ', $actions) . ']';
+                }
+
+                // Display foreign key definition with extra indentation
+                $this->line("    {$constraintName}: {$fkDef}");
+            }
+        }
+
+        // Display CHECK constraints if exists
+        if (!empty($schema['check_constraints'])) {
+            $this->line();
+            $this->line('  CHECK CONSTRAINTS:');
+
+            // Display each check constraint with its clause
+            foreach ($schema['check_constraints'] as $constraintName => $checkClause) {
+                $this->line("    {$constraintName}: {$checkClause}");
+            }
+        }
+
         // Display index information if exists
         if (!empty($schema['indexes'])) {
             $this->line();
             $this->line('  INDEXES:');
 
-            // Display each index with columns and unique status
+            // Display each index with columns and type/unique status
             foreach ($schema['indexes'] as $indexName => $indexDef) {
                 // Join index columns with comma
                 $columns = implode(', ', $indexDef['columns']);
 
-                // Show UNIQUE if index is unique
-                $unique = $indexDef['unique'] ? 'UNIQUE' : '';
+                // Determine index type label
+                $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
+                $typeLabel = '';
+
+                if ($indexType === 'FULLTEXT') {
+                    $typeLabel = 'FULLTEXT';
+                }
+                elseif ($indexDef['unique'] ?? false) {
+                    $typeLabel = 'UNIQUE';
+                }
 
                 // Display index definition with extra indentation
-                $this->line("    {$indexName}: {$columns} {$unique}");
+                $this->line("    {$indexName}: {$columns} {$typeLabel}");
             }
+        }
+
+        // Display partition information if exists
+        if (!empty($schema['partition'])) {
+            $this->line();
+            $partition = $schema['partition'];
+            $type = strtoupper($partition['type']);
+            $this->line("  PARTITION BY {$type}({$partition['column']}) PARTITIONS {$partition['count']}");
         }
     }
 }

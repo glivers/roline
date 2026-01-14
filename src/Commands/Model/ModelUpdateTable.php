@@ -207,8 +207,54 @@ class ModelUpdateTable extends ModelCommand
             $this->info("Updating table '{$tableName}' from Model: {$modelClass}");
             $this->line();
 
+            // Define confirmation callback for column drops and renames
+            $confirmationCallback = function($dropColumns, $renameColumns) {
+                // If nothing to confirm, proceed
+                if (empty($dropColumns) && empty($renameColumns)) {
+                    return true;
+                }
+
+                // Show pending changes
+                $this->line();
+                $this->info("⚠ PENDING CHANGES:");
+                $this->line();
+
+                // Show renames (data preserved)
+                if (!empty($renameColumns)) {
+                    $this->info("RENAMES (data preserved):");
+                    foreach ($renameColumns as $rename) {
+                        $this->line("  - {$rename['old_name']} → {$rename['new_name']}");
+                    }
+                    $this->line();
+                }
+
+                // Show drops (data lost)
+                if (!empty($dropColumns)) {
+                    $this->error("DROPS (data will be lost):");
+                    foreach ($dropColumns as $col) {
+                        $this->error("  - {$col['name']} ({$col['reason']})");
+                    }
+                    $this->line();
+                }
+
+                // Prompt for confirmation
+                echo "Apply these changes? (y/n): ";
+                $handle = fopen("php://stdin", "r");
+                $input = trim(fgets($handle));
+                fclose($handle);
+
+                return strtolower($input) === 'y';
+            };
+
             // Compare model schema with database schema and execute ALTER TABLE statements
-            $schema->updateTableFromModel($modelClass);
+            $result = $schema->updateTableFromModel($modelClass, $confirmationCallback);
+
+            // Check if aborted
+            if ($result === false) {
+                // User aborted - don't show success message
+                $this->line();
+                exit(0);
+            }
 
             // Update successful
             $this->line();

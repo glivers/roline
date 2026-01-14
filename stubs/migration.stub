@@ -1,6 +1,6 @@
 <?php
 
-use Rackage\Registry;
+use Rackage\Model;
 
 /**
  * {{MigrationName}}
@@ -17,18 +17,15 @@ use Rackage\Registry;
  */
 function up()
 {
-    $db = Registry::get('database');
-    $query = $db->query();
-
-    $query->transaction();
+    Model::begin();
 
     try {
 {{UpSQL}}
 
-        $query->commit();
+        Model::commit();
 
     } catch (Exception $e) {
-        $query->rollback();
+        Model::rollback();
         throw $e;
     }
 }
@@ -38,18 +35,15 @@ function up()
  */
 function down()
 {
-    $db = Registry::get('database');
-    $query = $db->query();
-
-    $query->transaction();
+    Model::begin();
 
     try {
 {{DownSQL}}
 
-        $query->commit();
+        Model::commit();
 
     } catch (Exception $e) {
-        $query->rollback();
+        Model::rollback();
         throw $e;
     }
 }

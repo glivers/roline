@@ -107,6 +107,117 @@ class SchemaDiffer
             }
         }
 
+        // Detect foreign key changes
+        $oldForeignKeys = $oldSchema['foreign_keys'] ?? [];
+        $newForeignKeys = $newSchema['foreign_keys'] ?? [];
+
+        // Find added foreign keys
+        foreach ($newForeignKeys as $constraintName => $fk) {
+            if (!isset($oldForeignKeys[$constraintName])) {
+                $upSql[] = $this->generateAddForeignKey($tableName, $constraintName, $fk);
+                $downSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+            }
+        }
+
+        // Find removed foreign keys
+        foreach ($oldForeignKeys as $constraintName => $fk) {
+            if (!isset($newForeignKeys[$constraintName])) {
+                $upSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+                $downSql[] = $this->generateAddForeignKey($tableName, $constraintName, $fk);
+            }
+        }
+
+        // Find modified foreign keys (drop old, add new)
+        foreach ($newForeignKeys as $constraintName => $newFk) {
+            if (isset($oldForeignKeys[$constraintName])) {
+                $oldFk = $oldForeignKeys[$constraintName];
+                if ($this->foreignKeyChanged($oldFk, $newFk)) {
+                    // Drop old constraint
+                    $upSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+                    // Add new constraint
+                    $upSql[] = $this->generateAddForeignKey($tableName, $constraintName, $newFk);
+
+                    // Reverse for down migration
+                    $downSql[] = $this->generateDropForeignKey($tableName, $constraintName);
+                    $downSql[] = $this->generateAddForeignKey($tableName, $constraintName, $oldFk);
+                }
+            }
+        }
+
+        // Detect CHECK constraint changes (MySQL 8.0.16+)
+        $oldCheckConstraints = $oldSchema['check_constraints'] ?? [];
+        $newCheckConstraints = $newSchema['check_constraints'] ?? [];
+
+        // Find added check constraints
+        foreach ($newCheckConstraints as $constraintName => $checkClause) {
+            if (!isset($oldCheckConstraints[$constraintName])) {
+                $upSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $checkClause);
+                $downSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+            }
+        }
+
+        // Find removed check constraints
+        foreach ($oldCheckConstraints as $constraintName => $checkClause) {
+            if (!isset($newCheckConstraints[$constraintName])) {
+                $upSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+                $downSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $checkClause);
+            }
+        }
+
+        // Find modified check constraints (drop old, add new)
+        foreach ($newCheckConstraints as $constraintName => $newCheckClause) {
+            if (isset($oldCheckConstraints[$constraintName])) {
+                $oldCheckClause = $oldCheckConstraints[$constraintName];
+                if ($oldCheckClause !== $newCheckClause) {
+                    // Drop old constraint
+                    $upSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+                    // Add new constraint
+                    $upSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $newCheckClause);
+
+                    // Reverse for down migration
+                    $downSql[] = $this->generateDropCheckConstraint($tableName, $constraintName);
+                    $downSql[] = $this->generateAddCheckConstraint($tableName, $constraintName, $oldCheckClause);
+                }
+            }
+        }
+
+        // Detect index changes (both simple and composite)
+        $oldIndexes = $oldSchema['indexes'] ?? [];
+        $newIndexes = $newSchema['indexes'] ?? [];
+
+        // Find added indexes
+        foreach ($newIndexes as $indexName => $newIdx) {
+            if (!isset($oldIndexes[$indexName])) {
+                $upSql[] = $this->generateAddIndex($tableName, $indexName, $newIdx);
+                $downSql[] = $this->generateDropIndex($tableName, $indexName);
+            }
+        }
+
+        // Find removed indexes
+        foreach ($oldIndexes as $indexName => $oldIdx) {
+            if (!isset($newIndexes[$indexName])) {
+                $upSql[] = $this->generateDropIndex($tableName, $indexName);
+                $downSql[] = $this->generateAddIndex($tableName, $indexName, $oldIdx);
+            }
+        }
+
+        // Find modified indexes (drop old, add new)
+        foreach ($newIndexes as $indexName => $newIdx) {
+            if (isset($oldIndexes[$indexName])) {
+                $oldIdx = $oldIndexes[$indexName];
+                if ($this->indexChanged($oldIdx, $newIdx)) {
+                    // Drop old index
+                    $upSql[] = $this->generateDropIndex($tableName, $indexName);
+                    // Add new index
+                    $upSql[] = $this->generateAddIndex($tableName, $indexName, $newIdx);
+
+                    // Reverse for down migration
+                    $downSql[] = $this->generateDropIndex($tableName, $indexName);
+                    $downSql[] = $this->generateAddIndex($tableName, $indexName, $oldIdx);
+                }
+            }
+        }
+
         return ['up' => $upSql, 'down' => $downSql];
     }
 
@@ -136,6 +247,8 @@ class SchemaDiffer
     {
         $columns = $schema['columns'] ?? [];
         $primaryKey = $schema['primary_key'] ?? null;
+        $indexes = $schema['indexes'] ?? [];
+        $foreignKeys = $schema['foreign_keys'] ?? [];
         $engine = $schema['engine'] ?? 'InnoDB';
         $charset = $schema['charset'] ?? 'utf8mb4';
 
@@ -150,6 +263,47 @@ class SchemaDiffer
         if ($primaryKey) {
             $pkColumns = implode('`, `', $primaryKey);
             $sql .= ",\n    PRIMARY KEY (`{$pkColumns}`)";
+        }
+
+        // Add indexes (both simple and composite)
+        if (!empty($indexes)) {
+            foreach ($indexes as $indexName => $indexDef) {
+                // Skip primary key (already added above)
+                if ($indexName === 'PRIMARY') {
+                    continue;
+                }
+
+                // Build column list for index
+                $indexColumns = '`' . implode('`, `', $indexDef['columns']) . '`';
+                $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
+
+                // Add appropriate index type
+                if ($indexType === 'FULLTEXT') {
+                    $sql .= ",\n    FULLTEXT KEY `{$indexName}` ({$indexColumns})";
+                }
+                elseif ($indexDef['unique'] ?? false) {
+                    $sql .= ",\n    UNIQUE KEY `{$indexName}` ({$indexColumns})";
+                }
+                else {
+                    $sql .= ",\n    KEY `{$indexName}` ({$indexColumns})";
+                }
+            }
+        }
+
+        // Add foreign key constraints
+        if (!empty($foreignKeys)) {
+            foreach ($foreignKeys as $constraintName => $fk) {
+                $sql .= ",\n    CONSTRAINT `{$constraintName}` FOREIGN KEY (`{$fk['column']}`) ";
+                $sql .= "REFERENCES `{$fk['referenced_table']}` (`{$fk['referenced_column']}`)";
+
+                if (!empty($fk['on_delete'])) {
+                    $sql .= " ON DELETE {$fk['on_delete']}";
+                }
+
+                if (!empty($fk['on_update'])) {
+                    $sql .= " ON UPDATE {$fk['on_update']}";
+                }
+            }
         }
 
         $sql .= "\n) ENGINE={$engine} DEFAULT CHARSET={$charset};";
@@ -224,12 +378,11 @@ class SchemaDiffer
         }
 
         if ($columnDef['default'] !== null) {
-            $default = $columnDef['default'];
-            if (strtoupper($default) === 'CURRENT_TIMESTAMP' || strtoupper($default) === 'NULL') {
-                $sql .= " DEFAULT {$default}";
-            } else {
-                $sql .= " DEFAULT '{$default}'";
-            }
+            // INFORMATION_SCHEMA.COLUMN_DEFAULT returns exactly what's needed
+            // - String defaults include quotes: 'pending'
+            // - Numeric defaults have no quotes: 0
+            // - Keywords have no quotes: CURRENT_TIMESTAMP, NULL
+            $sql .= " DEFAULT {$columnDef['default']}";
         }
 
         if (!empty($columnDef['extra'])) {
@@ -237,5 +390,143 @@ class SchemaDiffer
         }
 
         return $sql;
+    }
+
+    /**
+     * Check if foreign key definition changed
+     *
+     * @param array $oldFk Old foreign key definition
+     * @param array $newFk New foreign key definition
+     * @return bool True if changed
+     */
+    protected function foreignKeyChanged($oldFk, $newFk)
+    {
+        return $oldFk['column'] !== $newFk['column']
+            || $oldFk['referenced_table'] !== $newFk['referenced_table']
+            || $oldFk['referenced_column'] !== $newFk['referenced_column']
+            || $oldFk['on_delete'] !== $newFk['on_delete']
+            || $oldFk['on_update'] !== $newFk['on_update'];
+    }
+
+    /**
+     * Generate ADD CONSTRAINT (foreign key) SQL
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @param array $fk Foreign key definition
+     * @return string SQL statement
+     */
+    protected function generateAddForeignKey($tableName, $constraintName, $fk)
+    {
+        $sql = "ALTER TABLE `{$tableName}` ADD CONSTRAINT `{$constraintName}` ";
+        $sql .= "FOREIGN KEY (`{$fk['column']}`) ";
+        $sql .= "REFERENCES `{$fk['referenced_table']}` (`{$fk['referenced_column']}`)";
+
+        if (!empty($fk['on_delete'])) {
+            $sql .= " ON DELETE {$fk['on_delete']}";
+        }
+
+        if (!empty($fk['on_update'])) {
+            $sql .= " ON UPDATE {$fk['on_update']}";
+        }
+
+        $sql .= ";";
+
+        return $sql;
+    }
+
+    /**
+     * Generate DROP CONSTRAINT (foreign key) SQL
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @return string SQL statement
+     */
+    protected function generateDropForeignKey($tableName, $constraintName)
+    {
+        return "ALTER TABLE `{$tableName}` DROP FOREIGN KEY `{$constraintName}`;";
+    }
+
+    /**
+     * Check if index definition changed
+     *
+     * @param array $oldIdx Old index definition
+     * @param array $newIdx New index definition
+     * @return bool True if changed
+     */
+    protected function indexChanged($oldIdx, $newIdx)
+    {
+        // Check if columns changed
+        if ($oldIdx['columns'] !== $newIdx['columns']) {
+            return true;
+        }
+
+        // Check if unique status changed
+        if (($oldIdx['unique'] ?? false) !== ($newIdx['unique'] ?? false)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Generate ADD INDEX SQL
+     *
+     * @param string $tableName Table name
+     * @param string $indexName Index name
+     * @param array $indexDef Index definition
+     * @return string SQL statement
+     */
+    protected function generateAddIndex($tableName, $indexName, $indexDef)
+    {
+        $columnList = '`' . implode('`, `', $indexDef['columns']) . '`';
+        $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
+
+        if ($indexType === 'FULLTEXT') {
+            return "ALTER TABLE `{$tableName}` ADD FULLTEXT INDEX `{$indexName}` ({$columnList});";
+        }
+        elseif ($indexDef['unique'] ?? false) {
+            return "ALTER TABLE `{$tableName}` ADD UNIQUE INDEX `{$indexName}` ({$columnList});";
+        }
+        else {
+            return "ALTER TABLE `{$tableName}` ADD INDEX `{$indexName}` ({$columnList});";
+        }
+    }
+
+    /**
+     * Generate DROP INDEX SQL
+     *
+     * @param string $tableName Table name
+     * @param string $indexName Index name
+     * @return string SQL statement
+     */
+    protected function generateDropIndex($tableName, $indexName)
+    {
+        return "ALTER TABLE `{$tableName}` DROP INDEX `{$indexName}`;";
+    }
+
+    /**
+     * Generate ADD CHECK CONSTRAINT SQL (MySQL 8.0.16+)
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @param string $checkClause CHECK clause expression
+     * @return string SQL statement
+     */
+    protected function generateAddCheckConstraint($tableName, $constraintName, $checkClause)
+    {
+        return "ALTER TABLE `{$tableName}` ADD CONSTRAINT `{$constraintName}` CHECK ({$checkClause});";
+    }
+
+    /**
+     * Generate DROP CHECK CONSTRAINT SQL (MySQL 8.0.16+)
+     *
+     * @param string $tableName Table name
+     * @param string $constraintName Constraint name
+     * @return string SQL statement
+     */
+    protected function generateDropCheckConstraint($tableName, $constraintName)
+    {
+        return "ALTER TABLE `{$tableName}` DROP CHECK `{$constraintName}`;";
     }
 }

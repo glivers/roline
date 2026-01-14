@@ -48,7 +48,7 @@ class SchemaReader
                 AND TABLE_NAME != 'migrations'
                 ORDER BY TABLE_NAME";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $tables = [];
         if ($result && $result->num_rows > 0) {
@@ -89,9 +89,39 @@ class SchemaReader
             'columns' => $this->getColumns($table),
             'indexes' => $this->getIndexes($table),
             'primary_key' => $this->getPrimaryKey($table),
+            'foreign_keys' => $this->getForeignKeys($table),
+            'check_constraints' => $this->getCheckConstraints($table),
+            'partition' => $this->getPartition($table),
             'engine' => $this->getEngine($table),
             'charset' => $this->getCharset($table),
+            'table_comment' => $this->getTableComment($table),
         ];
+    }
+
+    /**
+     * Get table comment
+     *
+     * Retrieves the table-level comment from INFORMATION_SCHEMA.TABLES.
+     *
+     * @param string $table Table name
+     * @return string|null Table comment or null if not set
+     */
+    public function getTableComment($table)
+    {
+        $sql = "SELECT TABLE_COMMENT
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = '{$this->database}'
+                AND TABLE_NAME = '{$table}'";
+
+        $result = Model::sql($sql);
+
+        if ($result && $result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+
+            return $row['TABLE_COMMENT'] ?: null;
+        }
+
+        return null;
     }
 
     /**
@@ -109,13 +139,14 @@ class SchemaReader
                     COLUMN_DEFAULT,
                     EXTRA,
                     CHARACTER_SET_NAME,
-                    COLLATION_NAME
+                    COLLATION_NAME,
+                    COLUMN_COMMENT
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_SCHEMA = '{$this->database}'
                 AND TABLE_NAME = '{$table}'
                 ORDER BY ORDINAL_POSITION";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $columns = [];
         if ($result && $result->num_rows > 0) {
@@ -127,6 +158,7 @@ class SchemaReader
                     'extra' => $row['EXTRA'],
                     'charset' => $row['CHARACTER_SET_NAME'],
                     'collation' => $row['COLLATION_NAME'],
+                    'comment' => $row['COLUMN_COMMENT'] ?: null,
                 ];
             }
         }
@@ -153,7 +185,7 @@ class SchemaReader
                 AND INDEX_NAME != 'PRIMARY'
                 ORDER BY INDEX_NAME, SEQ_IN_INDEX";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $indexes = [];
         if ($result && $result->num_rows > 0) {
@@ -188,7 +220,7 @@ class SchemaReader
                 AND INDEX_NAME = 'PRIMARY'
                 ORDER BY SEQ_IN_INDEX";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         $columns = [];
         if ($result && $result->num_rows > 0) {
@@ -213,7 +245,7 @@ class SchemaReader
                 WHERE TABLE_SCHEMA = '{$this->database}'
                 AND TABLE_NAME = '{$table}'";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         if ($result && $result->num_rows > 0) {
             $row = $result->fetch_assoc();
@@ -238,7 +270,7 @@ class SchemaReader
                 WHERE T.TABLE_SCHEMA = '{$this->database}'
                 AND T.TABLE_NAME = '{$table}'";
 
-        $result = Model::rawQuery($sql);
+        $result = Model::sql($sql);
 
         if ($result && $result->num_rows > 0) {
             $row = $result->fetch_assoc();
@@ -246,5 +278,133 @@ class SchemaReader
         }
 
         return 'utf8mb4';
+    }
+
+    /**
+     * Get foreign keys for a table
+     *
+     * @param string $table Table name
+     * @return array Array of foreign key definitions
+     */
+    public function getForeignKeys($table)
+    {
+        $sql = "SELECT
+                    CONSTRAINT_NAME,
+                    COLUMN_NAME,
+                    REFERENCED_TABLE_NAME,
+                    REFERENCED_COLUMN_NAME
+                FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA = '{$this->database}'
+                AND TABLE_NAME = '{$table}'
+                AND REFERENCED_TABLE_NAME IS NOT NULL
+                ORDER BY CONSTRAINT_NAME";
+
+        $result = Model::sql($sql);
+
+        $foreignKeys = [];
+        if ($result && $result->num_rows > 0) {
+            while ($row = $result->fetch_assoc()) {
+                $constraintName = $row['CONSTRAINT_NAME'];
+
+                // Get ON DELETE and ON UPDATE actions
+                $refSql = "SELECT
+                            DELETE_RULE,
+                            UPDATE_RULE
+                          FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+                          WHERE CONSTRAINT_SCHEMA = '{$this->database}'
+                          AND CONSTRAINT_NAME = '{$constraintName}'";
+
+                $refResult = Model::sql($refSql);
+                $refRow = $refResult->fetch_assoc(); 
+
+                $foreignKeys[$constraintName] = [
+                    'column' => $row['COLUMN_NAME'],
+                    'referenced_table' => $row['REFERENCED_TABLE_NAME'],
+                    'referenced_column' => $row['REFERENCED_COLUMN_NAME'],
+                    'on_delete' => $refRow['DELETE_RULE'] ?? 'RESTRICT',
+                    'on_update' => $refRow['UPDATE_RULE'] ?? 'RESTRICT',
+                ];
+            }
+        }
+
+        return $foreignKeys;
+    }
+
+    /**
+     * Get CHECK constraints for a table
+     *
+     * Retrieves CHECK constraints from INFORMATION_SCHEMA.CHECK_CONSTRAINTS.
+     * Available in MySQL 8.0.16 and later.
+     *
+     * Process:
+     *   1. Query CHECK_CONSTRAINTS table for table's constraints
+     *   2. Return associative array of constraint_name => check_clause
+     *
+     * Note: Column-level CHECK constraints use auto-generated names
+     * in format: table_name_chk_N (where N is sequential number)
+     *
+     * @param string $table Table name
+     * @return array Array of check constraint definitions
+     */
+    public function getCheckConstraints($table)
+    {
+        $sql = "SELECT
+                    CONSTRAINT_NAME,
+                    CHECK_CLAUSE
+                FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS
+                WHERE CONSTRAINT_SCHEMA = '{$this->database}'
+                AND TABLE_NAME = '{$table}'
+                ORDER BY CONSTRAINT_NAME";
+
+        $result = Model::sql($sql);
+
+        $checkConstraints = [];
+        if ($result && $result->num_rows > 0) {
+            while ($row = $result->fetch_assoc()) {
+                $checkConstraints[$row['CONSTRAINT_NAME']] = $row['CHECK_CLAUSE'];
+            }
+        }
+
+        return $checkConstraints;
+    }
+
+    /**
+     * Get partition info for a table
+     *
+     * Retrieves partition configuration from INFORMATION_SCHEMA.PARTITIONS.
+     * Returns null if table is not partitioned.
+     *
+     * @param string $table Table name
+     * @return array|null Partition config ['type', 'column', 'count'] or null
+     */
+    public function getPartition($table)
+    {
+        $sql = "SELECT PARTITION_METHOD, PARTITION_EXPRESSION, COUNT(*) as partition_count
+                FROM INFORMATION_SCHEMA.PARTITIONS
+                WHERE TABLE_SCHEMA = '{$this->database}'
+                AND TABLE_NAME = '{$table}'
+                AND PARTITION_NAME IS NOT NULL
+                GROUP BY PARTITION_METHOD, PARTITION_EXPRESSION";
+
+        $result = Model::sql($sql);
+
+        if (!$result || $result->num_rows === 0) {
+            return null;
+        }
+
+        $row = $result->fetch_assoc();
+
+        // Parse partition method (HASH, KEY, RANGE, LIST)
+        $type = strtolower($row['PARTITION_METHOD']);
+
+        // Parse partition expression (column name)
+        // Expression is like `source` or source - strip backticks
+        $column = trim($row['PARTITION_EXPRESSION'], '`');
+
+        return [
+            'type' => $type,
+            'column' => $column,
+            'count' => (int) $row['partition_count']
+        ];
     }
 }

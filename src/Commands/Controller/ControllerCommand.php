@@ -31,12 +31,12 @@ abstract class ControllerCommand extends Command
     /**
      * Validate and normalize controller name
      *
-     * Ensures a controller name is provided and removes the 'Controller' suffix
-     * if the user included it. This allows both 'Posts' and 'PostsController'
-     * as valid input.
+     * Ensures a controller name is provided, capitalizes first letter, and removes
+     * the 'Controller' suffix if the user included it. This allows 'posts', 'Posts',
+     * and 'PostsController' as valid input, all normalized to 'Posts'.
      *
      * @param string|null $name Controller name from user input
-     * @return string Normalized name without 'Controller' suffix
+     * @return string Normalized name without 'Controller' suffix, first letter capitalized
      */
     protected function validateName($name)
     {
@@ -45,6 +45,9 @@ abstract class ControllerCommand extends Command
             $this->error('Controller name is required');
             exit(1);
         }
+
+        // Capitalize first letter (allows lowercase input like 'posts')
+        $name = ucfirst($name);
 
         // Remove 'Controller' suffix if user provided it
         // Example: 'PostsController' becomes 'Posts'

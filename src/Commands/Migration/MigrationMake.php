@@ -251,11 +251,11 @@ class MigrationMake extends MigrationCommand
      * Format SQL for insertion into stub
      *
      * Formats raw SQL statements for inclusion in migration stub template.
-     * Splits statements by semicolon, wraps each in $db->execute() call,
+     * Splits statements by semicolon, wraps each in Model::sql() call,
      * and adds proper indentation for code readability.
      *
      * @param string $sql Raw SQL statements
-     * @return string Formatted SQL with execute() calls and indentation
+     * @return string Formatted SQL with Model::sql() calls and indentation
      */
     private function formatSqlForStub($sql)
     {
@@ -280,8 +280,8 @@ class MigrationMake extends MigrationCommand
                 }
                 $indentedSql = implode("\n", $indented);
 
-                // Wrap in $db->execute() call
-                $formatted[] = "    \$db->execute(\"\n{$indentedSql}\n    \");";
+                // Wrap in Model::sql() call
+                $formatted[] = "    Model::sql(\"\n{$indentedSql}\n    \");";
             }
         }
 

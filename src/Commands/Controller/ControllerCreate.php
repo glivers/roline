@@ -36,6 +36,7 @@
  */
 
 use Rackage\File;
+use Rackage\Registry;
 use Roline\Output;
 
 class ControllerCreate extends ControllerCommand
@@ -107,6 +108,13 @@ class ControllerCreate extends ControllerCommand
         // Replace template placeholders with actual controller name
         $content = str_replace('{{ControllerName}}', $name, $stub->content);
         $content = str_replace('{{ControllerName|lowercase}}', strtolower($name), $content);
+
+        // Replace metadata placeholders from settings
+        $settings = Registry::settings();
+        $content = str_replace('{{author}}', $settings['author'] ?? 'Your Name', $content);
+        $content = str_replace('{{copyright}}', $settings['copyright'] ?? 'Copyright (c) ' . date('Y'), $content);
+        $content = str_replace('{{license}}', $settings['license'] ?? 'MIT License', $content);
+        $content = str_replace('{{version}}', $settings['version'] ?? '1.0.0', $content);
 
         // Ensure target directory exists before writing
         $this->ensureControllersDir();

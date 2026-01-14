@@ -3,35 +3,40 @@
 /**
  * ViewCreate Command
  *
- * Creates a new view directory with index template file in application/views/.
- * Supports custom stub templates from application/database/stubs/view.stub or
- * generates a default HTML5 template with basic structure.
+ * Creates a complete view structure with layout, index, view, and create templates,
+ * along with a CSS stylesheet. Uses professional stub templates that demonstrate
+ * Rachie's template engine capabilities and best practices.
  *
  * What Gets Created:
  *   - View directory: application/views/{name}/
+ *   - Layout template: application/views/{name}/layout.php
  *   - Index template: application/views/{name}/index.php
+ *   - View template: application/views/{name}/view.php
+ *   - Create template: application/views/{name}/create.php
+ *   - Stylesheet: public/css/{name}.css
  *
- * Template Options:
- *   1. Custom Stub - If application/database/stubs/view.stub exists, uses it
- *      with placeholder replacement ({{ViewName}}, {{ViewName|ucfirst}})
- *   2. Generated Template - Default HTML5 boilerplate with page title and
- *      basic content structure
+ * Template Features:
+ *   - Layout inheritance with @extends/@section/@yield
+ *   - View helpers (Url::, Session::, Input::, Date::, CSRF::)
+ *   - Flash message support
+ *   - Form with CSRF protection
+ *   - Empty state handling with @loopelse
+ *   - Responsive CSS styling
  *
  * Safety Features:
  *   - Validates view name (required, valid characters)
  *   - Checks for existing directories to prevent overwriting
- *   - Ensures parent application/views/ directory exists
+ *   - Ensures parent directories exist
  *   - Reports success with usage instructions
  *
  * Typical Workflow:
- *   1. Create view directory structure
- *   2. Generate index.php template
- *   3. Developer edits template with Rachie view syntax (@if, @foreach, etc.)
- *   4. Render via View::render('viewname.index') in controllers
+ *   1. Create complete view structure with stubs
+ *   2. Developer customizes templates for their data model
+ *   3. Render via View::render('viewname/index') in controllers
  *
  * Usage:
+ *   php roline view:create products
  *   php roline view:create users
- *   php roline view:create blog
  *
  * @author Geoffrey Okongo <code@rachie.dev>
  * @copyright 2015 - 2050 Geoffrey Okongo
@@ -54,7 +59,7 @@ class ViewCreate extends ViewCommand
      */
     public function description()
     {
-        return 'Create a new view directory';
+        return 'Create a complete view structure with templates';
     }
 
     /**
@@ -80,32 +85,37 @@ class ViewCreate extends ViewCommand
         parent::help();
 
         Output::info('Arguments:');
-        Output::line('  <view|required>  Name of the view directory (e.g., posts, users)');
+        Output::line('  <view|required>  Name of the view resource (e.g., products, users)');
         Output::line();
 
         Output::info('Examples:');
-        Output::line('  php roline view:create posts');
+        Output::line('  php roline view:create products');
         Output::line('  php roline view:create users');
         Output::line();
 
         Output::info('Creates:');
-        Output::line('  application/views/posts/');
-        Output::line('  application/views/posts/index.php');
+        Output::line('  application/views/products/layout.php');
+        Output::line('  application/views/products/index.php');
+        Output::line('  application/views/products/show.php');
+        Output::line('  application/views/products/create.php');
+        Output::line('  application/views/products/edit.php');
+        Output::line('  public/css/products.css');
         Output::line();
 
-        Output::info('Generated File:');
-        Output::line('  - Basic HTML template with Rachie syntax');
-        Output::line('  - Ready to use with View::render(\'posts.index\')');
+        Output::info('Generated Files:');
+        Output::line('  - Layout with @extends/@section/@yield');
+        Output::line('  - Templates with Rachie syntax and view helpers');
+        Output::line('  - Clean, responsive CSS styling');
+        Output::line('  - CSRF protection and flash messages');
         Output::line();
     }
 
     /**
-     * Execute view directory creation
+     * Execute view structure creation
      *
-     * Creates a new view directory under application/views/ with an index.php
-     * template file. Supports custom stub templates or generates default HTML5
-     * boilerplate. Validates view name, checks for conflicts, and reports success
-     * with usage instructions.
+     * Creates a complete view structure with layout, index, view, and create
+     * templates, plus a CSS stylesheet. Uses professional stubs that demonstrate
+     * Rachie's template engine and best practices.
      *
      * @param array $arguments Command arguments (view name required at index 0)
      * @return void Exits with status 1 on failure
@@ -138,78 +148,193 @@ class ViewCreate extends ViewCommand
             exit(1);
         }
 
-        // Build path to index.php file inside view directory
-        $indexPath = $this->getViewPath($viewDir, 'index');
+        // Define view files to create from stubs
+        $viewFiles = [
+            'layout' => 'layout.stub',
+            'index' => 'index.stub',
+            'show' => 'show.stub',
+            'create' => 'create.stub',
+            'edit' => 'edit.stub'
+        ];
 
-        // Check for custom stub template first, then fall back to generated template
-        $customStubPath = getcwd() . '/application/database/stubs/view.stub';
+        $createdPaths = [];
 
-        if (file_exists($customStubPath)) {
-            // Read custom stub file
-            $stub = File::read($customStubPath);
+        // Create each view file from its stub
+        foreach ($viewFiles as $fileName => $stubFile) {
+            $content = $this->processStub($stubFile, ucfirst($name));
 
-            if ($stub->success) {
-                // Replace placeholders in custom stub with actual view name
-                $indexContent = str_replace('{{ViewName}}', $name, $stub->content);
-                $indexContent = str_replace('{{ViewName|ucfirst}}', ucfirst($name), $indexContent);
-            } else {
-                // Fall back to generated template if stub read fails
-                $indexContent = $this->generateIndexTemplate($name);
+            if ($content === false) {
+                $this->error("Failed to read stub: {$stubFile}");
+                exit(1);
             }
-        } else {
-            // No custom stub exists - use generated HTML5 template
-            $indexContent = $this->generateIndexTemplate($name);
+
+            $filePath = $this->getViewPath($viewDir, $fileName);
+            $writeResult = File::write($filePath, $content);
+
+            if (!$writeResult->success) {
+                $this->error("Failed to create {$fileName}.php: {$writeResult->errorMessage}");
+                exit(1);
+            }
+
+            $createdPaths[] = $filePath;
         }
 
-        // Write index.php file to disk
-        $writeResult = File::write($indexPath, $indexContent);
-
-        if ($writeResult->success)
-        {
-            // Display success messages with file paths and usage instructions
-            $this->success("View directory created: {$viewDir}");
-            $this->success("Index file created: {$indexPath}");
-            $this->info("Use: View::render('{$name}.index')");
-        }
-        else
-        {
-            $this->error("Failed to create index file: {$writeResult->errorMessage}");
+        // Create CSS file in public/css/
+        $cssResult = $this->createCssFile($name);
+        if (!$cssResult['success']) {
+            $this->error("Failed to create CSS file: {$cssResult['error']}");
             exit(1);
+        }
+
+        $createdPaths[] = $cssResult['path'];
+
+        // Display success messages
+        $this->line();
+        $this->success("View structure created successfully!");
+        $this->line();
+
+        foreach ($createdPaths as $path) {
+            $this->info("  ✓ {$path}");
+        }
+
+        $this->line();
+        $this->info("Usage in controller:");
+        $this->line("  View::render('{$name}/index');");
+        $this->line("  View::render('{$name}/show', ['id' => \$id]);");
+        $this->line();
+    }
+
+    /**
+     * Process stub template with placeholder replacement
+     *
+     * Reads a stub file and replaces placeholders with actual resource names.
+     * Supports filters: |lowercase, |singular, |uppercase
+     *
+     * @param string $stubFile Stub filename (e.g., 'layout.stub')
+     * @param string $resourceName Resource name (e.g., 'Products')
+     * @return string|false Processed content or false on failure
+     */
+    private function processStub($stubFile, $resourceName)
+    {
+        $stubPath = __DIR__ . '/../../../stubs/views/' . $stubFile;
+
+        if (!file_exists($stubPath)) {
+            return false;
+        }
+
+        $content = file_get_contents($stubPath);
+
+        if ($content === false) {
+            return false;
+        }
+
+        // Process all placeholder patterns with filters
+        $content = $this->replacePlaceholders($content, $resourceName);
+
+        return $content;
+    }
+
+    /**
+     * Replace placeholders in content with resource-specific values
+     *
+     * Handles patterns like:
+     * - {{ResourceName}} → "Products"
+     * - {{ResourceName|lowercase}} → "products"
+     * - {{ResourceName|singular}} → "Product"
+     * - {{ResourceName|lowercase|singular}} → "product"
+     *
+     * @param string $content Content with placeholders
+     * @param string $resourceName Resource name
+     * @return string Content with placeholders replaced
+     */
+    private function replacePlaceholders($content, $resourceName)
+    {
+        // Match {{ResourceName}} with optional filters
+        $pattern = '/\{\{ResourceName(\|[a-z]+)*\}\}/';
+
+        return preg_replace_callback($pattern, function($matches) use ($resourceName) {
+            $value = $resourceName;
+            $filters = isset($matches[1]) ? explode('|', trim($matches[1], '|')) : [];
+
+            foreach ($filters as $filter) {
+                $value = $this->applyFilter($value, $filter);
+            }
+
+            return $value;
+        }, $content);
+    }
+
+    /**
+     * Apply filter to a value
+     *
+     * Supported filters:
+     * - lowercase: Convert to lowercase
+     * - singular: Singularize (basic: removes trailing 's')
+     * - uppercase: Convert to uppercase
+     *
+     * @param string $value Value to filter
+     * @param string $filter Filter name
+     * @return string Filtered value
+     */
+    private function applyFilter($value, $filter)
+    {
+        switch ($filter) {
+            case 'lowercase':
+                return strtolower($value);
+
+            case 'singular':
+                // Simple singularization: remove trailing 's'
+                return rtrim($value, 's');
+
+            case 'uppercase':
+                return strtoupper($value);
+
+            case 'capitalize':
+                return ucfirst(strtolower($value));
+
+            default:
+                return $value;
         }
     }
 
     /**
-     * Generate index template content
+     * Create CSS file in public/css/ directory
      *
-     * Creates a default HTML5 boilerplate template when no custom stub is available.
-     * Includes basic meta tags, responsive viewport, and placeholder content with
-     * the view name incorporated into the title and heading.
-     *
-     * @param string $name View name (used in title and heading)
-     * @return string Complete HTML5 template content
+     * @param string $resourceName Resource name
+     * @return array Result with 'success', 'path', and optional 'error'
      */
-    private function generateIndexTemplate($name)
+    private function createCssFile($resourceName)
     {
-        // Capitalize view name for display in title and heading
-        $nameCapitalized = ucfirst($name);
+        $cssDir = 'public/css';
+        $cssFile = strtolower($resourceName) . '.css';
+        $cssPath = $cssDir . '/' . $cssFile;
 
-        // Generate basic HTML5 template with meta tags and placeholder content
-        return <<<TEMPLATE
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{$nameCapitalized} - Index</title>
-</head>
-<body>
-    <h1>{$nameCapitalized} Index</h1>
+        // Ensure public/css/ directory exists
+        File::ensureDir($cssDir);
 
-    <p>This is the index view for {$name}.</p>
+        // Read CSS stub
+        $stubPath = __DIR__ . '/../../../stubs/views/styles.stub';
 
-    <!-- Add your content here -->
-</body>
-</html>
-TEMPLATE;
+        if (!file_exists($stubPath)) {
+            return ['success' => false, 'error' => 'CSS stub not found'];
+        }
+
+        $content = file_get_contents($stubPath);
+
+        if ($content === false) {
+            return ['success' => false, 'error' => 'Failed to read CSS stub'];
+        }
+
+        // Replace placeholders
+        $content = $this->replacePlaceholders($content, $resourceName);
+
+        // Write CSS file
+        $result = File::write($cssPath, $content);
+
+        if (!$result->success) {
+            return ['success' => false, 'error' => $result->errorMessage];
+        }
+
+        return ['success' => true, 'path' => $cssPath];
     }
 }

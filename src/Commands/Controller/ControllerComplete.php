@@ -4,29 +4,32 @@
  * ControllerComplete Command
  *
  * Convenience command designed to create complete MVC resource scaffolding in a single
- * operation by generating controller, model, and views together. Currently shows "coming
- * soon" message as scaffolding feature is not yet implemented.
+ * operation by generating controller, model, and views together.
  *
- * Intended Functionality (Planned):
- *   When fully implemented, this command will create:
+ * Functionality:
+ *   This command creates:
  *   - Controller file in application/controllers/
  *   - Model file in application/models/
  *   - View directory in application/views/ with standard templates:
+ *     * layout.php (main layout)
  *     * index.php (list view)
  *     * show.php (single item view)
  *     * create.php (create form)
  *     * edit.php (edit form)
+ *   - CSS file in public/css/
  *
- * Typical Usage Pattern (When Implemented):
+ * Usage Example:
  *   php roline controller:complete Posts
  *
- *   Would create:
+ *   Creates:
  *   - application/controllers/PostsController.php
  *   - application/models/PostsModel.php
+ *   - application/views/posts/layout.php
  *   - application/views/posts/index.php
  *   - application/views/posts/show.php
  *   - application/views/posts/create.php
  *   - application/views/posts/edit.php
+ *   - public/css/posts.css
  *
  * Advantages Over Individual Commands:
  *   Instead of running:
@@ -40,21 +43,15 @@
  *   Developer runs single command:
  *   - php roline controller:complete Posts
  *
- * Current Status:
- *   - Command is registered and callable
- *   - Displays informational message about planned feature
- *   - Does NOT currently generate any files
- *   - Reserved for future scaffolding implementation
+ * Implementation:
+ *   - Generates complete CRUD controller with getIndex, getShow, getCreate,
+ *     postCreate, getEdit, postUpdate, and getDelete methods
+ *   - Creates model with example properties (title, description, status, priority)
+ *   - Generates professional view templates with Rachie template syntax
+ *   - Includes responsive CSS styling
+ *   - Full CSRF protection and flash message support
  *
- * Expected Implementation:
- *   - Leverage existing ControllerCreate, ModelCreate, ViewCreate commands
- *   - Generate RESTful controller methods (getIndex, getShow, getCreate, etc.)
- *   - Create model with basic table name configuration
- *   - Generate view templates with placeholder content
- *   - Optional database table creation integration
- *   - Possible CRUD method scaffolding in controller
- *
- * Use Cases (When Implemented):
+ * Use Cases:
  *   - Quick prototyping of new resources
  *   - Rapid application scaffolding
  *   - Teaching MVC patterns to new developers
@@ -74,6 +71,9 @@
  * @license http://opensource.org/licenses/MIT MIT License
  * @version 1.0.0
  */
+
+use Rackage\File;
+use Rackage\Registry;
 
 class ControllerComplete extends ControllerCommand
 {
@@ -210,7 +210,7 @@ class ControllerComplete extends ControllerCommand
         $defaultStubPath = __DIR__ . '/../../../stubs/controller.stub';
         $stubPath = file_exists($customStubPath) ? $customStubPath : $defaultStubPath;
 
-        $stub = \Rackage\File::read($stubPath);
+        $stub = File::read($stubPath);
         if (!$stub->success) {
             return ['success' => false, 'error' => 'Controller stub file not found'];
         }
@@ -218,8 +218,15 @@ class ControllerComplete extends ControllerCommand
         $content = str_replace('{{ControllerName}}', $name, $stub->content);
         $content = str_replace('{{ControllerName|lowercase}}', strtolower($name), $content);
 
+        // Replace metadata placeholders from settings
+        $settings = Registry::settings();
+        $content = str_replace('{{author}}', $settings['author'] ?? 'Your Name', $content);
+        $content = str_replace('{{copyright}}', $settings['copyright'] ?? 'Copyright (c) ' . date('Y'), $content);
+        $content = str_replace('{{license}}', $settings['license'] ?? 'MIT License', $content);
+        $content = str_replace('{{version}}', $settings['version'] ?? '1.0.0', $content);
+
         $this->ensureControllersDir();
-        $result = \Rackage\File::write($path, $content);
+        $result = File::write($path, $content);
 
         if (!$result->success) {
             return ['success' => false, 'error' => $result->errorMessage];
@@ -238,7 +245,7 @@ class ControllerComplete extends ControllerCommand
     {
         $modelPath = "application/models/{$name}Model.php";
 
-        if (\Rackage\File::exists($modelPath)->exists) {
+        if (File::exists($modelPath)->exists) {
             return ['success' => false, 'error' => "Model already exists: {$modelPath}"];
         }
 
@@ -247,7 +254,7 @@ class ControllerComplete extends ControllerCommand
         $defaultStubPath = __DIR__ . '/../../../stubs/model.stub';
         $stubPath = file_exists($customStubPath) ? $customStubPath : $defaultStubPath;
 
-        $stub = \Rackage\File::read($stubPath);
+        $stub = File::read($stubPath);
         if (!$stub->success) {
             return ['success' => false, 'error' => 'Model stub file not found'];
         }
@@ -258,8 +265,15 @@ class ControllerComplete extends ControllerCommand
         $content = str_replace('{{ModelName}}', $name, $stub->content);
         $content = str_replace('{{TableName}}', $tableName, $content);
 
-        \Rackage\File::ensureDir('application/models');
-        $result = \Rackage\File::write($modelPath, $content);
+        // Replace metadata placeholders from settings
+        $settings = Registry::settings();
+        $content = str_replace('{{author}}', $settings['author'] ?? 'Your Name', $content);
+        $content = str_replace('{{copyright}}', $settings['copyright'] ?? 'Copyright (c) ' . date('Y'), $content);
+        $content = str_replace('{{license}}', $settings['license'] ?? 'MIT License', $content);
+        $content = str_replace('{{version}}', $settings['version'] ?? '1.0.0', $content);
+
+        File::ensureDir('application/models');
+        $result = File::write($modelPath, $content);
 
         if (!$result->success) {
             return ['success' => false, 'error' => $result->errorMessage];
@@ -269,7 +283,10 @@ class ControllerComplete extends ControllerCommand
     }
 
     /**
-     * Create view files (index, show, create, edit)
+     * Create view files (layout, index, show, create, edit) and CSS
+     *
+     * Uses professional stub templates that demonstrate Rachie's
+     * template engine capabilities and best practices.
      *
      * @param string $name Resource name for views
      * @return array Result with 'success', 'paths' array, and optional 'error'
@@ -280,23 +297,32 @@ class ControllerComplete extends ControllerCommand
         $paths = [];
 
         // Ensure view directory exists
-        \Rackage\File::ensureDir($viewsDir);
+        File::ensureDir($viewsDir);
 
-        $views = [
-            'index' => $this->getIndexViewContent($name),
-            'show' => $this->getShowViewContent($name),
-            'create' => $this->getCreateViewContent($name),
-            'edit' => $this->getEditViewContent($name)
+        // Define view files to create from stubs
+        $viewFiles = [
+            'layout' => 'layout.stub',
+            'index' => 'index.stub',
+            'show' => 'show.stub',
+            'create' => 'create.stub',
+            'edit' => 'edit.stub'
         ];
 
-        foreach ($views as $viewName => $content) {
-            $viewPath = "{$viewsDir}/{$viewName}.php";
+        // Create each view file from its stub
+        foreach ($viewFiles as $fileName => $stubFile) {
+            $content = $this->processStub($stubFile, $name);
+
+            if ($content === false) {
+                return ['success' => false, 'error' => "Failed to read stub: {$stubFile}"];
+            }
+
+            $viewPath = "{$viewsDir}/{$fileName}.php";
 
             if (file_exists($viewPath)) {
                 return ['success' => false, 'error' => "View already exists: {$viewPath}"];
             }
 
-            $result = \Rackage\File::write($viewPath, $content);
+            $result = File::write($viewPath, $content);
             if (!$result->success) {
                 return ['success' => false, 'error' => $result->errorMessage];
             }
@@ -304,105 +330,149 @@ class ControllerComplete extends ControllerCommand
             $paths[] = $viewPath;
         }
 
+        // Create CSS file
+        $cssResult = $this->createCssFile($name);
+        if (!$cssResult['success']) {
+            return ['success' => false, 'error' => $cssResult['error']];
+        }
+
+        $paths[] = $cssResult['path'];
+
         return ['success' => true, 'paths' => $paths];
     }
 
     /**
-     * Get index view template content
+     * Process stub template with placeholder replacement
      *
-     * @param string $name Resource name
-     * @return string View content
+     * Reads a stub file and replaces placeholders with actual resource names.
+     * Supports filters: |lowercase, |singular, |uppercase
+     *
+     * @param string $stubFile Stub filename (e.g., 'layout.stub')
+     * @param string $resourceName Resource name (e.g., 'Products')
+     * @return string|false Processed content or false on failure
      */
-    private function getIndexViewContent($name)
+    private function processStub($stubFile, $resourceName)
     {
-        $lower = strtolower($name);
-        return <<<EOT
-<h1>{$name} - Index</h1>
+        $stubPath = __DIR__ . '/../../../stubs/views/' . $stubFile;
 
-<p><a href="{{ Url::base() }}{$lower}/create">Create New</a></p>
+        if (!file_exists($stubPath)) {
+            return false;
+        }
 
-@loopelse(\${$lower}s as \$item)
-    <div>
-        <h2>{{ \$item->title }}</h2>
-        <a href="{{ Url::base() }}{$lower}/show/{{ \$item->id }}">View</a>
-        <a href="{{ Url::base() }}{$lower}/edit/{{ \$item->id }}">Edit</a>
-    </div>
-@empty
-    <p>No {$lower} found.</p>
-@endloop
+        $content = file_get_contents($stubPath);
 
-EOT;
+        if ($content === false) {
+            return false;
+        }
+
+        // Process all placeholder patterns with filters
+        $content = $this->replacePlaceholders($content, $resourceName);
+
+        return $content;
     }
 
     /**
-     * Get show view template content
+     * Replace placeholders in content with resource-specific values
      *
-     * @param string $name Resource name
-     * @return string View content
+     * Handles patterns like:
+     * - {{ResourceName}} → "Products"
+     * - {{ResourceName|lowercase}} → "products"
+     * - {{ResourceName|singular}} → "Product"
+     * - {{ResourceName|lowercase|singular}} → "product"
+     *
+     * @param string $content Content with placeholders
+     * @param string $resourceName Resource name
+     * @return string Content with placeholders replaced
      */
-    private function getShowViewContent($name)
+    private function replacePlaceholders($content, $resourceName)
     {
-        $lower = strtolower($name);
-        return <<<EOT
-<h1>{$name} - Show</h1>
+        // Match {{ResourceName}} with optional filters
+        $pattern = '/\{\{ResourceName(\|[a-z]+)*\}\}/';
 
-<p><a href="{{ Url::base() }}{$lower}">Back to List</a></p>
+        return preg_replace_callback($pattern, function($matches) use ($resourceName) {
+            $value = $resourceName;
+            $filters = isset($matches[1]) ? explode('|', trim($matches[1], '|')) : [];
 
-<div>
-    <h2>{{ \${$lower}->title }}</h2>
-    <!-- Add more fields here -->
-</div>
+            foreach ($filters as $filter) {
+                $value = $this->applyFilter($value, $filter);
+            }
 
-<p>
-    <a href="{{ Url::base() }}{$lower}/edit/{{ \${$lower}->id }}">Edit</a>
-</p>
-
-EOT;
+            return $value;
+        }, $content);
     }
 
     /**
-     * Get create view template content
+     * Apply filter to a value
      *
-     * @param string $name Resource name
-     * @return string View content
+     * Supported filters:
+     * - lowercase: Convert to lowercase
+     * - singular: Singularize (basic: removes trailing 's')
+     * - uppercase: Convert to uppercase
+     * - capitalize: Capitalize first letter
+     *
+     * @param string $value Value to filter
+     * @param string $filter Filter name
+     * @return string Filtered value
      */
-    private function getCreateViewContent($name)
+    private function applyFilter($value, $filter)
     {
-        $lower = strtolower($name);
-        return <<<EOT
-<h1>{$name} - Create</h1>
+        switch ($filter) {
+            case 'lowercase':
+                return strtolower($value);
 
-<p><a href="{{ Url::base() }}{$lower}">Back to List</a></p>
+            case 'singular':
+                // Simple singularization: remove trailing 's'
+                return rtrim($value, 's');
 
-<form method="POST" action="{{ Url::base() }}{$lower}/store">
-    <!-- Add your form fields here -->
+            case 'uppercase':
+                return strtoupper($value);
 
-    <button type="submit">Create</button>
-</form>
+            case 'capitalize':
+                return ucfirst(strtolower($value));
 
-EOT;
+            default:
+                return $value;
+        }
     }
 
     /**
-     * Get edit view template content
+     * Create CSS file in public/css/ directory
      *
-     * @param string $name Resource name
-     * @return string View content
+     * @param string $resourceName Resource name
+     * @return array Result with 'success', 'path', and optional 'error'
      */
-    private function getEditViewContent($name)
+    private function createCssFile($resourceName)
     {
-        $lower = strtolower($name);
-        return <<<EOT
-<h1>{$name} - Edit</h1>
+        $cssDir = 'public/css';
+        $cssFile = strtolower($resourceName) . '.css';
+        $cssPath = $cssDir . '/' . $cssFile;
 
-<p><a href="{{ Url::base() }}{$lower}">Back to List</a></p>
+        // Ensure public/css/ directory exists
+        File::ensureDir($cssDir);
 
-<form method="POST" action="{{ Url::base() }}{$lower}/update/{{ \${$lower}->id }}">
-    <!-- Add your form fields here -->
+        // Read CSS stub
+        $stubPath = __DIR__ . '/../../../stubs/views/styles.stub';
 
-    <button type="submit">Update</button>
-</form>
+        if (!file_exists($stubPath)) {
+            return ['success' => false, 'error' => 'CSS stub not found'];
+        }
 
-EOT;
+        $content = file_get_contents($stubPath);
+
+        if ($content === false) {
+            return ['success' => false, 'error' => 'Failed to read CSS stub'];
+        }
+
+        // Replace placeholders
+        $content = $this->replacePlaceholders($content, $resourceName);
+
+        // Write CSS file
+        $result = File::write($cssPath, $content);
+
+        if (!$result->success) {
+            return ['success' => false, 'error' => $result->errorMessage];
+        }
+
+        return ['success' => true, 'path' => $cssPath];
     }
 }

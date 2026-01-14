@@ -1,69 +1,54 @@
 <?php namespace Models;
 
-use Rackage\Model;
-
 /**
  * {{ModelName}} Model
  *
- * Represents a {{ModelName}} entity in the database.
+ * TODO: Describe what this model represents (e.g., "Represents products in the system")
+ * Define your database columns as protected properties with @column annotations.
  *
- * Define database columns as protected properties with @column annotations.
- * Run `php roline table:create {{ModelName}}` to create the table.
- * Run `php roline table:update {{ModelName}}` after changing schema.
+ * Usage:
+ *   php roline model:create-table {{ModelName}}  - Create table from annotations
+ *   php roline model:update-table {{ModelName}}  - Update existing table
+ *
+ * Documentation: https://rachie.dev/docs/models
+ *
+ * @author {{author}}
+ * @copyright {{copyright}}
+ * @license {{license}}
+ * @version {{version}}
  */
+
+use Rackage\Model;
+
 class {{ModelName}}Model extends Model
 {
+    // ==================== MODEL PROPERTIES ====================
+
     /**
-     * Database table name
+     * Database table name for this model
+     *
+     * Defines which database table this model maps to. Used by the
+     * Query builder for all database operations on this model's records.
      *
      * @var string
      */
     protected static $table = '{{TableName}}';
 
     /**
-     * Automatically manage timestamps
+     * Enable automatic timestamp management
      *
-     * Set to true to auto-update date_created and date_modified columns.
+     * When enabled, automatically updates created_at on insert and
+     * updated_at on update. Set to true if using timestamp columns.
      *
      * @var bool
      */
     protected static $timestamps = true;
 
-    // ==================== DATABASE SCHEMA ====================
-    //
-    // Define your table columns below as protected properties with @column annotation.
-    //
-    // Supported Types:
-    //   Numeric: @int, @bigint, @decimal, @float, @double, @tinyint, @smallint, @mediumint
-    //   String: @varchar, @char, @text, @mediumtext, @longtext
-    //   Date/Time: @datetime, @date, @time, @timestamp, @year
-    //   Special: @enum, @set, @boolean, @bool, @json, @autonumber, @uuid
-    //   Binary: @blob, @mediumblob, @longblob
-    //   Spatial: @point, @geometry, @linestring, @polygon
-    //
-    // Modifiers:
-    //   @primary      - Primary key
-    //   @unique       - Unique constraint
-    //   @nullable     - Allow NULL values
-    //   @unsigned     - Unsigned numbers only
-    //   @default val  - Default value
-    //   @index        - Add index
-    //   @drop         - Mark for deletion (use with table:update)
-    //   @rename old   - Rename from old column name (use with table:update)
-    //
-    // Examples:
-    //   @varchar 255                              - VARCHAR(255) NOT NULL
-    //   @int 11 @unsigned                         - INT(11) UNSIGNED NOT NULL
-    //   @text @nullable                           - TEXT NULL
-    //   @enum active,inactive,banned @default active
-    //   @set read,write,delete,admin              - Multiple choice values
-    //   @decimal 10,2                             - DECIMAL(10,2) for currency
-    //   @json                                     - JSON column (MySQL 5.7+)
-    //   @point                                    - Lat/long coordinates
-    //
-    // Run: php roline table:create {{ModelName}}
+    // ==================== TABLE COLUMNS ====================
+    // Uncomment and modify the example columns below to match your table structure
 
     /**
+     * Primary key identifier for the record
      * @column
      * @primary
      * @autonumber
@@ -71,16 +56,50 @@ class {{ModelName}}Model extends Model
     protected $id;
 
     /**
+     * String column - names, titles, short text (up to 255 chars)
      * @column
-     * @datetime
+     * @varchar 255
      */
-    protected $date_created;
+    protected $title;
 
     /**
+     * Text column - long descriptions, content (up to 65K chars)
+     * @column
+     * @text
+     * @nullable
+     */
+    protected $description;
+
+    /**
+     * Enum column - limited set of allowed values
+     * @column
+     * @enum pending,completed
+     * @default pending
+     */
+    protected $status;    
+
+    /**
+     * Enum column - limited set of allowed values
+     * @column
+     * @enum low,medium,high
+     * @default low
+     */
+    protected $priority;
+
+    /**
+     * Timestamp columns - automatically managed when $timestamps = true
+     * Uncomment these and set $timestamps = true to enable auto-timestamps
      * @column
      * @datetime
      */
-    protected $date_modified;
+    protected $created_at;
+
+    /**
+    * Timestamp when the record was last modified
+     * @column
+     * @datetime
+     */
+    protected $updated_at;
 
     // ==================== MODEL METHODS ====================
 

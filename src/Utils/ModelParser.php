@@ -23,8 +23,25 @@ use Roline\Exceptions\Exceptions;
  *   @unsigned - Unsigned numeric (only for numeric types)
  *   @default value - Default value
  *   @index - Add index on this column
+ *   @fulltext - Add FULLTEXT index (for TEXT/VARCHAR columns)
+ *   @check expression - CHECK constraint (MySQL 8.0+)
+ *   @comment "text" - Column comment
+ *   @after column_name - Position after specified column (ALTER TABLE only)
+ *   @first - Position as first column in table (ALTER TABLE only)
  *   @drop - Mark for deletion (table:update)
  *   @rename old_name - Rename from old_name (table:update)
+ *
+ * Foreign Keys:
+ *   @foreign table(column) - Create foreign key constraint
+ *   @ondelete ACTION - ON DELETE action (CASCADE, RESTRICT, SET NULL, NO ACTION)
+ *   @onupdate ACTION - ON UPDATE action (CASCADE, RESTRICT, SET NULL, NO ACTION)
+ *
+ * Table-Level Annotations (class docblock):
+ *   @partition hash(column) count - HASH partitioning (e.g., @partition hash(source) 32)
+ *   @partition key(column) count  - KEY partitioning (e.g., @partition key(user_id) 16)
+ *   @tablecomment "text"         - Table comment
+ *   @compositeindex name(cols)   - Composite index
+ *   @compositeunique name(cols)  - Composite unique index
  *
  * Usage:
  *   $parser = new ModelParser();
@@ -168,6 +185,11 @@ class ModelParser
             'columns' => $columns,
             'timestamps' => $timestampsEnabled,
             'class' => $modelClass,
+            'composite_indexes' => $this->parseCompositeIndices($reflection),
+            'composite_unique_indexes' => $this->parseCompositeUniqueIndices($reflection),
+            'simple_indexes' => $this->parseSimpleIndices($columns),
+            'table_comment' => $this->parseTableComment($reflection),
+            'partition' => $this->parsePartition($reflection),
         ];
 
         // Validate schema before returning
@@ -232,18 +254,18 @@ class ModelParser
 
         // Check for timestamp columns if timestamps are enabled
         if ($schema['timestamps']) {
-            $hasDateCreated = false;
-            $hasDateModified = false;
+            $hasCreatedAt = false;
+            $hasUpdatedAt = false;
 
             foreach ($schema['columns'] as $column) {
-                if ($column['name'] === 'date_created') $hasDateCreated = true;
-                if ($column['name'] === 'date_modified') $hasDateModified = true;
+                if ($column['name'] === 'created_at') $hasCreatedAt = true;
+                if ($column['name'] === 'updated_at') $hasUpdatedAt = true;
             }
 
-            if (!$hasDateCreated || !$hasDateModified) {
+            if (!$hasCreatedAt || !$hasUpdatedAt) {
                 $missing = [];
-                if (!$hasDateCreated) $missing[] = 'date_created';
-                if (!$hasDateModified) $missing[] = 'date_modified';
+                if (!$hasCreatedAt) $missing[] = 'created_at';
+                if (!$hasUpdatedAt) $missing[] = 'updated_at';
 
                 throw new Exceptions(
                     "Model has \$timestamps = true but missing: " . implode(', ', $missing) . "\n\n" .
@@ -251,15 +273,17 @@ class ModelParser
                     "  Either add the timestamp columns OR set \$timestamps = false\n\n" .
                     "Add timestamp columns:\n" .
                     "  /**\n" .
+                    "   * Timestamp when the record was first created\n" .
                     "   * @column\n" .
                     "   * @datetime\n" .
                     "   */\n" .
-                    "  protected \$date_created;\n\n" .
+                    "  protected \$created_at;\n\n" .
                     "  /**\n" .
+                    "   * Timestamp when the record was last modified\n" .
                     "   * @column\n" .
                     "   * @datetime\n" .
                     "   */\n" .
-                    "  protected \$date_modified;\n\n" .
+                    "  protected \$updated_at;\n\n" .
                     "Or disable timestamps:\n" .
                     "  protected static \$timestamps = false;",
                     'missing_timestamps',
@@ -366,6 +390,11 @@ class ModelParser
             'autoincrement' => false,
             'default' => null,
             'index' => false,
+            'fulltext' => false,
+            'check' => null,
+            'comment' => null,
+            'after' => null,
+            'first' => false,
             'drop' => false,
             'rename' => null,
         ];
@@ -465,6 +494,55 @@ class ModelParser
 
         if ($this->hasAnnotation($docComment, 'index')) {
             $column['index'] = true;
+        }
+
+        // Check for fulltext index (TEXT/VARCHAR columns only)
+        if ($this->hasAnnotation($docComment, 'fulltext')) {
+            $column['fulltext'] = true;
+        }
+
+        // Check for CHECK constraint (MySQL 8.0+)
+        $check = $this->getAnnotationValue($docComment, 'check');
+        if ($check) {
+            $column['check'] = $check;
+        }
+
+        // Check for column comment
+        $comment = $this->getAnnotationValue($docComment, 'comment');
+        if ($comment) {
+            // Remove surrounding quotes if present
+            $column['comment'] = trim($comment, '"\'');
+        }
+
+        // Check for column positioning (ALTER TABLE only)
+        $after = $this->getAnnotationValue($docComment, 'after');
+        if ($after) {
+            $column['after'] = $after;
+        }
+
+        // Check for @first positioning (column at beginning of table)
+        if ($this->hasAnnotation($docComment, 'first')) {
+            $column['first'] = true;
+        }
+
+        // Parse foreign key constraint
+        if ($this->hasAnnotation($docComment, 'foreign')) {
+            $foreign = $this->getAnnotationValue($docComment, 'foreign');
+            if ($foreign) {
+                $column['foreign'] = $foreign; // Format: "table(column)"
+            }
+        }
+
+        // Parse ON DELETE action
+        if ($this->hasAnnotation($docComment, 'ondelete')) {
+            $onDelete = strtoupper($this->getAnnotationValue($docComment, 'ondelete'));
+            $column['on_delete'] = $onDelete; // CASCADE, SET NULL, RESTRICT, NO ACTION
+        }
+
+        // Parse ON UPDATE action
+        if ($this->hasAnnotation($docComment, 'onupdate')) {
+            $onUpdate = strtoupper($this->getAnnotationValue($docComment, 'onupdate'));
+            $column['on_update'] = $onUpdate; // CASCADE, SET NULL, RESTRICT, NO ACTION
         }
 
         // Get default value
@@ -579,6 +657,241 @@ class ModelParser
         // For multi-word values on same line (like enum values with commas)
         if (preg_match('/@' . preg_quote($annotation, '/') . '\s+([^\n\*@]+?)(?=\s*(?:\n|@|\*\/))/', $docComment, $matches)) {
             return trim($matches[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Parse class docblock for composite indices
+     *
+     * Supports two formats:
+     *   @composite (col1, col2, col3)                 - Auto-generated name
+     *   @composite idx_custom_name (col1, col2, col3) - Custom name
+     *
+     * Auto-generated names use pattern: idx_{col1}_{col2}_{col3}
+     *
+     * @param \ReflectionClass $reflection Class reflection
+     * @return array Composite indices ['index_name' => ['col1', 'col2', 'col3']]
+     */
+    private function parseCompositeIndices($reflection)
+    {
+        $docComment = $reflection->getDocComment();
+        if (!$docComment) {
+            return [];
+        }
+
+        $composites = [];
+
+        // Match: @composite optional_name (col1, col2, col3)
+        // Group 1: optional index name (if provided)
+        // Group 2: column list inside parentheses
+        $pattern = '/@composite\s+(?:(\w+)\s+)?\(([^)]+)\)/';
+
+        if (preg_match_all($pattern, $docComment, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $indexName = trim($match[1]) ?: null;  // null if not provided
+                $columnList = trim($match[2]);
+                $columns = array_map('trim', explode(',', $columnList));
+
+                // Auto-generate index name if not provided
+                if (!$indexName) {
+                    $indexName = 'idx_' . implode('_', $columns);
+                }
+
+                $composites[$indexName] = $columns;
+            }
+        }
+
+        return $composites;
+    }
+
+    /**
+     * Parse class docblock for composite unique indices
+     *
+     * Supports two formats:
+     *   @compositeUnique (col1, col2, col3)                 - Auto-generated name
+     *   @compositeUnique unq_custom_name (col1, col2, col3) - Custom name
+     *
+     * Auto-generated names use pattern: unq_{col1}_{col2}_{col3}
+     *
+     * @param \ReflectionClass $reflection Class reflection
+     * @return array Composite unique indices ['index_name' => ['col1', 'col2', 'col3']]
+     */
+    private function parseCompositeUniqueIndices($reflection)
+    {
+        $docComment = $reflection->getDocComment();
+        if (!$docComment) {
+            return [];
+        }
+
+        $composites = [];
+
+        // Match: @compositeUnique optional_name (col1, col2, col3)
+        // Group 1: optional index name (if provided)
+        // Group 2: column list inside parentheses
+        $pattern = '/@compositeUnique\s+(?:(\w+)\s+)?\(([^)]+)\)/';
+
+        if (preg_match_all($pattern, $docComment, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $indexName = trim($match[1]) ?: null;  // null if not provided
+                $columnList = trim($match[2]);
+                $columns = array_map('trim', explode(',', $columnList));
+
+                // Auto-generate index name if not provided
+                if (!$indexName) {
+                    $indexName = 'unq_' . implode('_', $columns);
+                }
+
+                $composites[$indexName] = $columns;
+            }
+        }
+
+        return $composites;
+    }
+
+    /**
+     * Parse class docblock for table comment
+     *
+     * Extracts table-level comment from class docblock using @tablecomment annotation.
+     * Comment is stored in database schema for documentation purposes.
+     *
+     * Syntax:
+     *   @tablecomment "User accounts and authentication data"
+     *   @tablecomment 'Product catalog entries'
+     *
+     * Process:
+     *   1. Get class docblock
+     *   2. Match @tablecomment followed by quoted or unquoted text
+     *   3. Strip surrounding quotes if present
+     *   4. Return trimmed comment or null
+     *
+     * @param \ReflectionClass $reflection Class reflection
+     * @return string|null Table comment or null if not defined
+     */
+    private function parseTableComment($reflection)
+    {
+        $docComment = $reflection->getDocComment();
+        if (!$docComment) {
+            return null;
+        }
+
+        // Match: @tablecomment "text" or @tablecomment 'text' or @tablecomment text
+        if (preg_match('/@tablecomment\s+["\']?([^"\'*\n]+)["\']?/', $docComment, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Parse @index annotations from property docblocks
+     *
+     * Extracts simple single-column indexes defined with @index annotation.
+     *
+     * Supports two formats:
+     *   @index                    - Auto-generated name (column_name_index)
+     *   @index index_custom_name  - Custom index name
+     *
+     * Also detects @unique which creates a unique index.
+     *
+     * @param array $columns Parsed column definitions
+     * @return array Simple indexes ['index_name' => ['column' => 'col_name', 'unique' => bool]]
+     */
+    private function parseSimpleIndices($columns)
+    {
+        $indexes = [];
+
+        // Note: $columns is a numeric array, not keyed by column name
+        foreach ($columns as $columnDef) {
+            $hasIndex = isset($columnDef['index']) && $columnDef['index'];
+            $hasUnique = isset($columnDef['unique']) && $columnDef['unique'];
+
+            // Skip if no @index or @unique annotation
+            if (!$hasIndex && !$hasUnique) {
+                continue;
+            }
+
+            $columnName = $columnDef['name'];
+
+            // @unique creates unique index with _unique suffix
+            if ($hasUnique) {
+                $indexes[$columnName . '_unique'] = [
+                    'column' => $columnName,
+                    'unique' => true,
+                ];
+            }
+
+            // @index creates regular index with _index suffix
+            // A column can have both @unique and @index (creates two indexes)
+            if ($hasIndex) {
+                $indexes[$columnName . '_index'] = [
+                    'column' => $columnName,
+                    'unique' => false,
+                ];
+            }
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * Parse @partition annotation from class docblock
+     *
+     * Extracts table partitioning configuration from class-level annotation.
+     * Partitioning splits large tables into smaller physical chunks for
+     * improved query performance and faster inserts on massive tables.
+     *
+     * Supported formats:
+     *   @partition hash(column) count    - HASH partitioning
+     *   @partition key(column) count     - KEY partitioning
+     *   @partition range(column)         - RANGE partitioning (not yet supported)
+     *   @partition list(column)          - LIST partitioning (not yet supported)
+     *
+     * Examples:
+     *   @partition hash(source) 32       - PARTITION BY HASH(source) PARTITIONS 32
+     *   @partition key(user_id) 16       - PARTITION BY KEY(user_id) PARTITIONS 16
+     *
+     * Process:
+     *   1. Get class docblock
+     *   2. Match @partition type(column) count pattern
+     *   3. Return partition config array or null
+     *
+     * Note: Partition column must be part of PRIMARY KEY for HASH/KEY partitioning.
+     *
+     * @param \ReflectionClass $reflection Reflection of model class
+     * @return array|null Partition config ['type' => 'hash', 'column' => 'source', 'count' => 32] or null
+     */
+    private function parsePartition($reflection)
+    {
+        $docComment = $reflection->getDocComment();
+        if (!$docComment) {
+            return null;
+        }
+
+        // Match: @partition type(column) count
+        // Example: @partition hash(source) 32
+        // Group 1: partition type (hash, key, range, list)
+        // Group 2: column name (inside parentheses)
+        // Group 3: optional partition count (for hash/key)
+        if (preg_match('/@partition\s+(hash|key|range|list)\((\w+)\)(?:\s+(\d+))?/i', $docComment, $matches)) {
+            $type = strtolower($matches[1]);
+            $column = $matches[2];
+            $count = isset($matches[3]) ? (int) $matches[3] : null;
+
+            // Validate count for hash/key (required)
+            if (in_array($type, ['hash', 'key']) && !$count) {
+                throw new \Exception(
+                    "Partition count required for {$type} partitioning.\n" .
+                    "Usage: @partition {$type}({$column}) 32"
+                );
+            }
+
+            return [
+                'type' => $type,
+                'column' => $column,
+                'count' => $count,
+            ];
         }
 
         return null;

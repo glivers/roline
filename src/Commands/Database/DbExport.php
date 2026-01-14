@@ -34,7 +34,7 @@
  * SQL Format Features:
  *   - SET FOREIGN_KEY_CHECKS=0 at start (allows safe table recreation)
  *   - DROP TABLE IF EXISTS for each table (idempotent import)
- *   - Properly escaped values with addslashes()
+ *   - Properly escaped values with mysqli::real_escape_string()
  *   - NULL handling with SQL NULL keyword
  *   - CURRENT_TIMESTAMP preservation for default values
  *   - SET FOREIGN_KEY_CHECKS=1 at end (restore safety)
@@ -95,10 +95,10 @@
  * @version 1.0.0
  */
 
-use Roline\Output;
-use Roline\Utils\SchemaReader;
 use Rackage\Model;
 use Rackage\Registry;
+use Roline\Output;
+use Roline\Utils\SchemaReader;
 
 class DbExport extends DatabaseCommand
 {
@@ -221,29 +221,35 @@ class DbExport extends DatabaseCommand
             $this->info('Tables to export: ' . count($tables));
             $this->line();
 
-            // Build SQL file header with metadata
-            $output = "-- Database Export\n";
-            $output .= "-- Database: {$databaseName}\n";
-            $output .= "-- Generated: " . date('Y-m-d H:i:s') . "\n";
-            $output .= "-- Tables: " . count($tables) . "\n\n";
+            // Open file handle for streaming (avoids memory exhaustion)
+            $fileHandle = fopen($filepath, 'w');
+            if (!$fileHandle) {
+                throw new \Exception("Failed to open file for writing: {$filepath}");
+            }
+
+            // Write SQL file header with metadata
+            fwrite($fileHandle, "-- Database Export\n");
+            fwrite($fileHandle, "-- Database: {$databaseName}\n");
+            fwrite($fileHandle, "-- Generated: " . date('Y-m-d H:i:s') . "\n");
+            fwrite($fileHandle, "-- Tables: " . count($tables) . "\n\n");
 
             // Disable foreign key checks for safe table recreation
-            $output .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
+            fwrite($fileHandle, "SET FOREIGN_KEY_CHECKS=0;\n\n");
 
             // Export each table (structure and data)
             foreach ($tables as $tableName) {
                 $this->info("  → Exporting {$tableName}...");
 
-                // Generate SQL for this table (CREATE + INSERT statements)
-                $output .= $this->exportTable($tableName, $schemaReader);
-                $output .= "\n";
+                // Stream table SQL directly to file (no memory accumulation)
+                $this->exportTable($tableName, $schemaReader, $fileHandle);
+                fwrite($fileHandle, "\n");
             }
 
             // Re-enable foreign key checks
-            $output .= "SET FOREIGN_KEY_CHECKS=1;\n";
+            fwrite($fileHandle, "SET FOREIGN_KEY_CHECKS=1;\n");
 
-            // Write complete SQL dump to file
-            file_put_contents($filepath, $output);
+            // Close file handle
+            fclose($fileHandle);
 
             // Export successful - display summary
             $this->line();
@@ -266,43 +272,42 @@ class DbExport extends DatabaseCommand
     /**
      * Export a single table (structure and data)
      *
-     * Generates complete SQL for one table including DROP TABLE, CREATE TABLE with
-     * full schema definition, and INSERT statements for all rows. Returns formatted
-     * SQL string ready for file output.
+     * Streams complete SQL for one table directly to file including DROP TABLE, CREATE TABLE
+     * with full schema definition, and INSERT statements for all rows. Writes directly to file
+     * handle to avoid memory accumulation.
      *
      * @param string $tableName Table name to export
      * @param SchemaReader $schemaReader Schema reader instance for querying
-     * @return string Complete SQL for table (DROP + CREATE + INSERT)
+     * @param resource $fileHandle File handle to write to
+     * @return void
      */
-    private function exportTable($tableName, $schemaReader)
+    private function exportTable($tableName, $schemaReader, $fileHandle)
     {
-        // Build table header comment
-        $output = "--\n";
-        $output .= "-- Table: {$tableName}\n";
-        $output .= "--\n\n";
+        // Write table header comment
+        fwrite($fileHandle, "--\n");
+        fwrite($fileHandle, "-- Table: {$tableName}\n");
+        fwrite($fileHandle, "--\n\n");
 
         // Get table schema from SchemaReader
         $schema = $schemaReader->getTableSchema($tableName);
 
-        // DROP TABLE statement for idempotent import
-        $output .= "DROP TABLE IF EXISTS `{$tableName}`;\n\n";
+        // Write DROP TABLE statement for idempotent import
+        fwrite($fileHandle, "DROP TABLE IF EXISTS `{$tableName}`;\n\n");
 
-        // CREATE TABLE statement with full schema
-        $output .= $this->generateCreateTableSQL($tableName, $schema);
-        $output .= "\n\n";
+        // Write CREATE TABLE statement with full schema
+        fwrite($fileHandle, $this->generateCreateTableSQL($tableName, $schema));
+        fwrite($fileHandle, "\n\n");
 
-        // INSERT statements for all table data
-        $output .= $this->generateInsertStatementsSQL($tableName);
-
-        return $output;
+        // Stream INSERT statements for all table data directly to file (with progress)
+        $this->generateInsertStatementsSQL($tableName, $fileHandle);
     }
 
     /**
      * Generate CREATE TABLE SQL
      *
      * Builds complete CREATE TABLE statement from schema definition including all
-     * column definitions with types, constraints, defaults, primary key, engine,
-     * and charset specifications.
+     * column definitions with types, constraints, defaults, primary key, foreign keys,
+     * engine, and charset specifications.
      *
      * @param string $tableName Table name
      * @param array $schema Table schema array from SchemaReader
@@ -313,6 +318,8 @@ class DbExport extends DatabaseCommand
         // Extract schema components
         $columns = $schema['columns'] ?? [];
         $primaryKey = $schema['primary_key'] ?? null;
+        $indexes = $schema['indexes'] ?? [];
+        $foreignKeys = $schema['foreign_keys'] ?? [];
         $engine = $schema['engine'] ?? 'InnoDB';
         $charset = $schema['charset'] ?? 'utf8mb4';
 
@@ -334,18 +341,37 @@ class DbExport extends DatabaseCommand
             if ($columnDef['default'] !== null) {
                 $default = $columnDef['default'];
 
+                // Skip DEFAULT NULL if column is NOT NULL (contradictory)
+                if (!$columnDef['nullable'] && strtoupper($default) === 'NULL') {
+                    // Skip - can't have NOT NULL DEFAULT NULL
+                }
                 // Special keywords (CURRENT_TIMESTAMP, NULL) don't get quoted
-                if (strtoupper($default) === 'CURRENT_TIMESTAMP' || strtoupper($default) === 'NULL') {
+                elseif (strtoupper($default) === 'CURRENT_TIMESTAMP' || strtoupper($default) === 'NULL') {
+                    $def .= " DEFAULT {$default}";
+                }
+                // Check if already quoted (ENUM/SET types return quoted values from MySQL)
+                elseif (strlen($default) >= 2 && $default[0] === "'" && substr($default, -1) === "'") {
+                    // Already quoted - use as-is
                     $def .= " DEFAULT {$default}";
                 } else {
-                    // Regular defaults get quoted
+                    // Regular defaults need quoting
                     $def .= " DEFAULT '{$default}'";
                 }
             }
 
             // Add extra attributes (AUTO_INCREMENT, etc.)
             if (!empty($columnDef['extra'])) {
-                $def .= " {$columnDef['extra']}";
+                $extra = trim($columnDef['extra']);
+
+                // Skip if extra is just "NULL" or "NOT NULL" (these are handled above)
+                if (strtoupper($extra) !== 'NULL' && strtoupper($extra) !== 'NOT NULL') {
+                    $def .= " {$extra}";
+                }
+            }
+
+            // Add column comment if exists
+            if (!empty($columnDef['comment'])) {
+                $def .= " COMMENT '" . addslashes($columnDef['comment']) . "'";
             }
 
             $columnDefs[] = $def;
@@ -361,8 +387,74 @@ class DbExport extends DatabaseCommand
             $sql .= ",\n  PRIMARY KEY ({$pkColumns})";
         }
 
+        // Add indexes (both simple and composite)
+        if (!empty($indexes)) {
+            foreach ($indexes as $indexName => $indexDef) {
+                // Skip primary key (already added above)
+                if ($indexName === 'PRIMARY') {
+                    continue;
+                }
+
+                // Build column list for index
+                $indexColumns = '`' . implode('`, `', $indexDef['columns']) . '`';
+                $indexType = strtoupper($indexDef['type'] ?? 'BTREE');
+
+                // Add appropriate index type
+                if ($indexType === 'FULLTEXT') {
+                    $sql .= ",\n  FULLTEXT KEY `{$indexName}` ({$indexColumns})";
+                }
+                elseif ($indexDef['unique']) {
+                    $sql .= ",\n  UNIQUE KEY `{$indexName}` ({$indexColumns})";
+                }
+                else {
+                    $sql .= ",\n  KEY `{$indexName}` ({$indexColumns})";
+                }
+            }
+        }
+
+        // Add FOREIGN KEY constraints if exist
+        if (!empty($foreignKeys)) {
+            foreach ($foreignKeys as $constraintName => $fk) {
+                $sql .= ",\n  CONSTRAINT `{$constraintName}` FOREIGN KEY (`{$fk['column']}`) ";
+                $sql .= "REFERENCES `{$fk['referenced_table']}` (`{$fk['referenced_column']}`)";
+
+                if (!empty($fk['on_delete'])) {
+                    $sql .= " ON DELETE {$fk['on_delete']}";
+                }
+
+                if (!empty($fk['on_update'])) {
+                    $sql .= " ON UPDATE {$fk['on_update']}";
+                }
+            }
+        }
+
+        // Add CHECK constraints if exist (MySQL 8.0.16+)
+        $checkConstraints = $schema['check_constraints'] ?? [];
+        if (!empty($checkConstraints)) {
+            foreach ($checkConstraints as $constraintName => $checkClause) {
+                $sql .= ",\n  CONSTRAINT `{$constraintName}` CHECK ({$checkClause})";
+            }
+        }
+
         // Close CREATE TABLE with engine and charset
-        $sql .= "\n) ENGINE={$engine} DEFAULT CHARSET={$charset};";
+        $sql .= "\n) ENGINE={$engine} DEFAULT CHARSET={$charset}";
+
+        // Add table comment if exists
+        $tableComment = $schema['table_comment'] ?? null;
+        if (!empty($tableComment)) {
+            $sql .= " COMMENT='" . addslashes($tableComment) . "'";
+        }
+
+        // Add partitioning if exists
+        $partition = $schema['partition'] ?? null;
+        if (!empty($partition)) {
+            $type = strtoupper($partition['type']);
+            $column = $partition['column'];
+            $count = $partition['count'];
+            $sql .= "\nPARTITION BY {$type}(`{$column}`)\nPARTITIONS {$count}";
+        }
+
+        $sql .= ";";
 
         return $sql;
     }
@@ -370,22 +462,48 @@ class DbExport extends DatabaseCommand
     /**
      * Generate INSERT statements for table data
      *
-     * Queries all rows from table and generates INSERT statement for each row with
-     * properly escaped values and NULL handling. Returns formatted SQL string with
-     * row count comment.
+     * Queries all rows from table and streams batched multi-row INSERT statements directly
+     * to file with properly escaped values and NULL handling. Uses extended INSERT syntax
+     * (mysqldump-style) with configurable batch size for optimal performance.
+     *
+     * Benefits of batching:
+     * - 10-100x faster imports (fewer SQL statements)
+     * - Fewer disk writes (1000 rows = 1 write vs 1000 writes)
+     * - Smaller file size (no repeated INSERT INTO overhead)
+     * - Memory efficient (only current batch in memory)
      *
      * @param string $tableName Table name
-     * @return string INSERT SQL statements for all rows
+     * @param resource $fileHandle File handle to write to
+     * @return void
      */
-    private function generateInsertStatementsSQL($tableName)
+    private function generateInsertStatementsSQL($tableName, $fileHandle)
     {
-        // Query all rows from table
-        $sql = "SELECT * FROM `{$tableName}`";
-        $result = Model::rawQuery($sql);
+        // Batch size: rows per INSERT statement (keep at 1000 for safety)
+        // 1000 rows = proven safe even for tables with large TEXT/BLOB columns
+        $batchSize = 1000;
 
-        // Handle empty table
-        if (!$result || $result->num_rows === 0) {
-            return "-- No data in table\n";
+        // Progress interval: show progress every N rows (reduces console spam)
+        // Update every 10k rows gives good feedback without cluttering output
+        $progressInterval = 10000;
+
+        // Query all rows from table (unbuffered - fetches one row at a time)
+        $sql = "SELECT * FROM `{$tableName}`";
+        $result = Model::stream()->sql($sql);
+
+        // Show initial message (no newline yet - we'll update on same line)
+        echo "  → Exporting {$tableName}...";
+
+        // Force flush to show message immediately
+        if (ob_get_level() > 0) {
+            ob_flush();
+        }
+        flush();
+
+        // Handle query failure
+        if (!$result) {
+            fwrite($fileHandle, "-- No data in table\n");
+            echo " \033[37m(0 rows)\033[0m\n";  // White text in parentheses
+            return;
         }
 
         // Extract column names from result metadata
@@ -395,35 +513,70 @@ class DbExport extends DatabaseCommand
             $columns[] = $field->name;
         }
 
-        // Build data header comment
-        $output = "-- Data for table {$tableName}\n";
-        $output .= "-- Rows: {$result->num_rows}\n\n";
+        // Write data header comment (row count shown at end after processing)
+        fwrite($fileHandle, "-- Data for table {$tableName}\n\n");
 
-        // Generate INSERT statement for each row
+        // Pre-build column list (same for all rows)
+        $columnList = '`' . implode('`, `', $columns) . '`';
+
+        // Batch processing: accumulate rows, write in chunks
+        $batch = [];
+        $rowCount = 0;
+        $lastProgressUpdate = 0;
+
         while ($row = $result->fetch_assoc()) {
             $values = [];
 
             // Process each column value
             foreach ($columns as $column) {
                 $value = $row[$column];
-
-                // Handle NULL values with SQL NULL keyword
-                if ($value === null) {
-                    $values[] = 'NULL';
-                } else {
-                    // Escape value and wrap in quotes
-                    $escaped = addslashes($value);
-                    $values[] = "'{$escaped}'";
-                }
+                // Model::quote() handles NULL, escaping, and quoting
+                $values[] = Model::quote($value);
             }
 
-            // Build INSERT statement with column list and values
-            $columnList = '`' . implode('`, `', $columns) . '`';
-            $valueList = implode(', ', $values);
+            // Add row to batch as value list: (val1, val2, val3)
+            $batch[] = '(' . implode(', ', $values) . ')';
+            $rowCount++;
 
-            $output .= "INSERT INTO `{$tableName}` ({$columnList}) VALUES ({$valueList});\n";
+            // When batch is full, write multi-row INSERT statement
+            if ($rowCount % $batchSize === 0) {
+                // Extended INSERT: INSERT INTO table (cols) VALUES (row1), (row2), ..., (rowN);
+                $sql = "INSERT INTO `{$tableName}` ({$columnList}) VALUES\n";
+                $sql .= implode(",\n", $batch);
+                $sql .= ";\n\n";
+
+                fwrite($fileHandle, $sql);
+
+                // Reset batch for next chunk
+                $batch = [];
+            }
+
+            // Update progress every progressInterval rows (e.g., every 10k)
+            if ($rowCount % $progressInterval === 0 && $rowCount !== $lastProgressUpdate) {
+                // \r returns to start of line, \033[K clears rest of line
+                echo "\r\033[K  → Exporting {$tableName}... \033[37m(" . number_format($rowCount) . " rows)\033[0m";
+
+                // Force flush output immediately (bypass PHP's output buffering)
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
+                flush();
+
+                $lastProgressUpdate = $rowCount;
+            }
         }
 
-        return $output;
+        // Write remaining rows (last batch if not perfectly divisible)
+        if (!empty($batch)) {
+            $sql = "INSERT INTO `{$tableName}` ({$columnList}) VALUES\n";
+            $sql .= implode(",\n", $batch);
+            $sql .= ";\n\n";
+
+            fwrite($fileHandle, $sql);
+        }
+
+        // Final progress with newline to move to next line
+        // \r\033[K clears the line first, then show final count
+        echo "\r\033[K  → Exporting {$tableName}... \033[37m(" . number_format($rowCount) . " rows)\033[0m\n";
     }
 }
