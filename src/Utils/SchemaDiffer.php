@@ -378,12 +378,11 @@ class SchemaDiffer
         }
 
         if ($columnDef['default'] !== null) {
-            $default = $columnDef['default'];
-            if (strtoupper($default) === 'CURRENT_TIMESTAMP' || strtoupper($default) === 'NULL') {
-                $sql .= " DEFAULT {$default}";
-            } else {
-                $sql .= " DEFAULT '{$default}'";
-            }
+            // INFORMATION_SCHEMA.COLUMN_DEFAULT returns exactly what's needed
+            // - String defaults include quotes: 'pending'
+            // - Numeric defaults have no quotes: 0
+            // - Keywords have no quotes: CURRENT_TIMESTAMP, NULL
+            $sql .= " DEFAULT {$columnDef['default']}";
         }
 
         if (!empty($columnDef['extra'])) {
