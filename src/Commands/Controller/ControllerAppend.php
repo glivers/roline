@@ -5,23 +5,24 @@
  *
  * Adds a new method to an existing controller class without recreating the
  * entire file. The method is inserted before the closing brace with proper
- * formatting, GET prefix, and auto-generated view path.
+ * formatting and auto-generated view path.
  *
  * Features:
  *   - Validates controller exists before modification
  *   - Checks for method name conflicts
- *   - Auto-adds GET prefix (getMethodName)
- *   - Generates view path (controller.method)
+ *   - Uses exact method name as provided
+ *   - Generates view path (controller/method)
  *   - Maintains proper code formatting
  *   - Preserves existing controller code
  *
  * Generated Method Structure:
  *   - Docblock with description
- *   - GET-prefixed method name
- *   - View rendering call
+ *   - Method with exact name provided
+ *   - Data array with title
+ *   - View rendering call with data
  *
  * Usage:
- *   php roline controller:append Posts published
+ *   php roline controller:append Posts getPublished
  *   php roline controller:append Users archive
  *
  * @author Geoffrey Okongo <code@rachie.dev>
@@ -54,26 +55,27 @@ class ControllerAppend extends ControllerCommand
 
         Output::info('Arguments:');
         Output::line('  <Controller|required>  Name of the existing controller');
-        Output::line('  <method|required>      Name of the method to add (e.g., published, archive)');
+        Output::line('  <method|required>      Exact name of the method to add (e.g., getPublished, archive)');
         Output::line();
 
         Output::info('Examples:');
-        Output::line('  php roline controller:append Posts published');
+        Output::line('  php roline controller:append Posts getPublished');
         Output::line('  php roline controller:append Users archive');
         Output::line();
 
         Output::info('Generates:');
-        Output::line('  Adds a new GET method to the controller:');
+        Output::line('  Adds a new method to the controller using the exact name provided:');
         Output::line('    public function getPublished()');
         Output::line('    {');
-        Output::line('        View::render(\'posts.published\');');
+        Output::line('        $data[\'title\'] = \'GetPublished\';');
+        Output::line('        View::render(\'posts/getPublished\', $data);');
         Output::line('    }');
         Output::line();
 
         Output::info('Note:');
         Output::line('  - Method is inserted before the closing brace of the class');
-        Output::line('  - Uses GET prefix by default (getMethodName)');
-        Output::line('  - View path is auto-generated (controller.method)');
+        Output::line('  - Uses the exact method name you provide (no automatic prefixes)');
+        Output::line('  - View path is auto-generated (controller/method)');
         Output::line();
     }
 
@@ -111,15 +113,15 @@ class ControllerAppend extends ControllerCommand
         $content = $fileContent->content;
 
         // Check for method name conflicts to prevent duplication
-        $methodPattern = '/public\s+function\s+get' . ucfirst($methodName) . '\s*\(/';
+        $methodPattern = '/public\s+function\s+' . preg_quote($methodName, '/') . '\s*\(/';
         if (preg_match($methodPattern, $content))
         {
-            $this->error("Method 'get" . ucfirst($methodName) . "' already exists in {$controllerName}Controller");
+            $this->error("Method '{$methodName}' already exists in {$controllerName}Controller");
             exit(1);
         }
 
-        // Generate view path following convention: controller.method
-        $viewPath = strtolower($controllerName) . '.' . strtolower($methodName);
+        // Generate view path following convention: controller/method
+        $viewPath = strtolower($controllerName) . '/' . strtolower($methodName);
         $newMethod = $this->generateMethod($methodName, $viewPath);
 
         // Find the last closing brace (end of class)
@@ -139,7 +141,7 @@ class ControllerAppend extends ControllerCommand
 
         if ($result->success)
         {
-            $this->success("Method 'get" . ucfirst($methodName) . "' added to {$controllerName}Controller");
+            $this->success("Method '{$methodName}' added to {$controllerName}Controller");
             $this->info("View path: {$viewPath}");
         }
         else
@@ -152,11 +154,11 @@ class ControllerAppend extends ControllerCommand
     /**
      * Generate method code with docblock and view rendering
      *
-     * Creates a properly formatted controller method with GET prefix,
+     * Creates a properly formatted controller method with exact name provided,
      * descriptive docblock, and view rendering call.
      *
-     * @param string $methodName Method name without prefix (e.g., 'published')
-     * @param string $viewPath View path for rendering (e.g., 'posts.published')
+     * @param string $methodName Exact method name to create (e.g., 'getPublished', 'archive')
+     * @param string $viewPath View path for rendering (e.g., 'posts/published')
      * @return string Complete method code ready for insertion
      */
     private function generateMethod($methodName, $viewPath)
@@ -170,9 +172,11 @@ class ControllerAppend extends ControllerCommand
      *
      * @return void
      */
-    public function get{$methodNameCapitalized}()
+    public function {$methodName}()
     {
-        View::render('{$viewPath}');
+        \$data['title'] = '{$methodNameCapitalized}';
+
+        View::render('{$viewPath}', \$data);
     }
 METHOD;
     }
