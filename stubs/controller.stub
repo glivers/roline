@@ -73,10 +73,11 @@ class {{ControllerName}}Controller extends Controller
         // Note: TodoModel should match your actual model class name
         ${{ControllerName|lowercase}} = TodoModel::getById($id);
 
-        View::render('{{ControllerName|lowercase}}/show', [
-            'id' => $id,
-            '{{ControllerName|lowercase}}' => ${{ControllerName|lowercase}}
-        ]);
+        $data['title'] = '{{ControllerName}} Details';
+        $data['id'] = $id;
+        $data['{{ControllerName|lowercase}}'] = ${{ControllerName|lowercase}};
+
+        View::render('{{ControllerName|lowercase}}/show', $data);
     }
 
     /**
@@ -89,7 +90,9 @@ class {{ControllerName}}Controller extends Controller
      */
     public function getCreate()
     {
-        View::render('{{ControllerName|lowercase}}/create');
+        $data['title'] = 'Create {{ControllerName}}';
+
+        View::render('{{ControllerName|lowercase}}/create', $data);
     }
 
     /**
@@ -137,10 +140,11 @@ class {{ControllerName}}Controller extends Controller
             Redirect::to('{{ControllerName|lowercase}}');
         }
 
-        View::render('{{ControllerName|lowercase}}/edit', [
-            'id' => $id,
-            '{{ControllerName|lowercase}}' => ${{ControllerName|lowercase}}
-        ]);
+        $data['title'] = 'Edit {{ControllerName}}';
+        $data['id'] = $id;
+        $data['{{ControllerName|lowercase}}'] = ${{ControllerName|lowercase}};
+
+        View::render('{{ControllerName|lowercase}}/edit', $data);
     }
 
     /**
