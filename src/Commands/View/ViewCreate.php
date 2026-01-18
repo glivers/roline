@@ -153,7 +153,7 @@ class ViewCreate extends ViewCommand
             'layout' => 'layout.stub',
             'index' => 'index.stub',
             'show' => 'show.stub',
-            'create' => 'create.stub',
+            'new' => 'new.stub',
             'edit' => 'edit.stub'
         ];
 
