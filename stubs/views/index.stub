@@ -5,7 +5,7 @@
 @section('content')
     <div class="page-header">
         <h1>{{ResourceName}}</h1>
-        <a href="{{ Url::link('{{ResourceName|lowercase}}/create') }}" class="btn btn-primary">Create New</a>
+        <a href="{{ Url::link('{{ResourceName|lowercase}}/new') }}" class="btn btn-primary">Create New</a>
     </div>
 
     <div class="cards-grid">
@@ -47,7 +47,7 @@
                 </svg>
                 <h2>No {{ResourceName|lowercase}} yet</h2>
                 <p>Your {{ResourceName|lowercase}} will appear here</p>
-                <a href="{{ Url::link('{{ResourceName|lowercase}}/create') }}" class="btn btn-primary">Create your first one</a>
+                <a href="{{ Url::link('{{ResourceName|lowercase}}/new') }}" class="btn btn-primary">Create your first one</a>
             </div>
         @endloop
     </div>
