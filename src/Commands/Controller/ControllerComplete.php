@@ -44,8 +44,8 @@
  *   - php roline controller:complete Posts
  *
  * Implementation:
- *   - Generates complete CRUD controller with getIndex, getShow, getCreate,
- *     postCreate, getEdit, postUpdate, and getDelete methods
+ *   - Generates complete CRUD controller with getIndex, getNew, postNew,
+ *     getShow, getEdit, postEdit, and getDelete methods
  *   - Creates model with example properties (title, description, status, priority)
  *   - Generates professional view templates with Rachie template syntax
  *   - Includes responsive CSS styling
@@ -304,7 +304,7 @@ class ControllerComplete extends ControllerCommand
             'layout' => 'layout.stub',
             'index' => 'index.stub',
             'show' => 'show.stub',
-            'create' => 'create.stub',
+            'new' => 'new.stub',
             'edit' => 'edit.stub'
         ];
 
