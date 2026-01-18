@@ -1343,6 +1343,9 @@ class MySQLSchema
     {
         $this->ensureConnection();
 
+        // Escape table name for safe SQL usage
+        $escapedTable = $this->connection->escape($tableName);
+
         $sql = "
             SELECT
                 TABLE_NAME,
@@ -1350,15 +1353,12 @@ class MySQLSchema
                 CONSTRAINT_NAME
             FROM information_schema.KEY_COLUMN_USAGE
             WHERE TABLE_SCHEMA = DATABASE()
-                AND REFERENCED_TABLE_NAME = ?
+                AND REFERENCED_TABLE_NAME = '{$escapedTable}'
                 AND REFERENCED_TABLE_NAME IS NOT NULL
         ";
 
-        // Use prepared statement
-        $stmt = $this->connection->prepare($sql);
-        $stmt->bind_param('s', $tableName);
-        $stmt->execute();
-        $result = $stmt->get_result();
+        // Execute query using standard execute() method
+        $result = $this->connection->execute($sql);
 
         $references = [];
         while ($row = $result->fetch_assoc()) {
