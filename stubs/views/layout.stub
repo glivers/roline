@@ -13,7 +13,7 @@
             <a href="{{ Url::link('{{ResourceName|lowercase}}') }}" class="brand">{{ResourceName|capitalize}} Manager</a>
             <div class="nav-links">
                 <a href="{{ Url::link('{{ResourceName|lowercase}}') }}">List</a>
-                <a href="{{ Url::link('{{ResourceName|lowercase}}/create') }}">Create New</a>
+                <a href="{{ Url::link('{{ResourceName|lowercase}}/new') }}">Create New</a>
             </div>
         </div>
     </nav>
