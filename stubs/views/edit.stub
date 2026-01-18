@@ -9,7 +9,7 @@
     </div>
 
     <div class="card">
-        <form method="POST" action="{{ Url::link('{{ResourceName|lowercase}}/update/' . $id) }}" class="form">
+        <form method="POST" action="{{ Url::link('{{ResourceName|lowercase}}/edit/' . $id) }}" class="form">
             {{{ CSRF::field() }}}
 
             <div class="form-group">
