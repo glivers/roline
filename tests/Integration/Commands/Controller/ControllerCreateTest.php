@@ -100,12 +100,12 @@ class ControllerCreateTest extends RolineTest
      *   - Controller file is created with --resource flag
      *   - All seven RESTful methods are present:
      *     * getIndex() - List all resources (GET /resource)
-     *     * getCreate() - Show create form (GET /resource/create)
-     *     * postStore() - Store new resource (POST /resource)
+     *     * getNew() - Show create form (GET /resource/new)
+     *     * postNew() - Store new resource (POST /resource/new)
      *     * getShow($id) - Display single resource (GET /resource/{id})
      *     * getEdit($id) - Show edit form (GET /resource/{id}/edit)
-     *     * putUpdate($id) - Update resource (PUT /resource/{id})
-     *     * deleteDestroy($id) - Delete resource (DELETE /resource/{id})
+     *     * postEdit($id) - Update resource (POST /resource/{id}/edit)
+     *     * getDelete($id) - Delete resource (GET /resource/{id}/delete)
      *
      * RESTful Method Pattern:
      *   Methods are prefixed with HTTP verbs (get, post, put, delete) to handle
@@ -132,12 +132,12 @@ class ControllerCreateTest extends RolineTest
 
         // Assert RESTful methods exist
         $this->assertStringContainsString('public function getIndex()', $content);
-        $this->assertStringContainsString('public function getCreate()', $content);
-        $this->assertStringContainsString('public function postStore()', $content);
+        $this->assertStringContainsString('public function getNew()', $content);
+        $this->assertStringContainsString('public function postNew()', $content);
         $this->assertStringContainsString('public function getShow($id)', $content);
         $this->assertStringContainsString('public function getEdit($id)', $content);
-        $this->assertStringContainsString('public function putUpdate($id)', $content);
-        $this->assertStringContainsString('public function deleteDestroy($id)', $content);
+        $this->assertStringContainsString('public function postEdit($id)', $content);
+        $this->assertStringContainsString('public function getDelete($id)', $content);
     }
 
     /**

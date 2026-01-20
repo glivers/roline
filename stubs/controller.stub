@@ -9,8 +9,8 @@
  * Routes:
  *   GET  /{{ControllerName|lowercase}}           - List all resources
  *   GET  /{{ControllerName|lowercase}}/show/id   - Show single resource
- *   GET  /{{ControllerName|lowercase}}/create    - Show create form
- *   POST /{{ControllerName|lowercase}}/create    - Save new resource
+ *   GET  /{{ControllerName|lowercase}}/new       - Show create form
+ *   POST /{{ControllerName|lowercase}}/new       - Save new resource
  *
  * Documentation: https://rachie.dev/docs/controllers
  *
@@ -88,11 +88,11 @@ class {{ControllerName}}Controller extends Controller
      *
      * @return void
      */
-    public function getCreate()
+    public function getNew()
     {
-        $data['title'] = 'Create {{ControllerName}}';
+        $data['title'] = 'New {{ControllerName}}';
 
-        View::render('{{ControllerName|lowercase}}/create', $data);
+        View::render('{{ControllerName|lowercase}}/new', $data);
     }
 
     /**
@@ -103,7 +103,7 @@ class {{ControllerName}}Controller extends Controller
      *
      * @return void
      */
-    public function postCreate()
+    public function postNew()
     {
         // In real life you'd validate input & CSRF token before saving records
 
@@ -115,7 +115,7 @@ class {{ControllerName}}Controller extends Controller
             'status' => Input::get('status'),
             'priority' => Input::get('priority')
         ]);
-        
+
         // 5. Set success message and redirect
         Session::flash('success', 'Record created successfully!');
         Redirect::to('{{ControllerName|lowercase}}');
@@ -156,7 +156,7 @@ class {{ControllerName}}Controller extends Controller
      * @param mixed $id Resource identifier
      * @return void
      */
-    public function postUpdate($id)
+    public function postEdit($id)
     {
         // In real life you'd validate input & CSRF token before updating records
 

@@ -15,12 +15,12 @@
  *
  * Generated Methods:
  *   - getIndex()    - List resources
- *   - getCreate()   - Show create form
- *   - postStore()   - Store new resource
+ *   - getNew()      - Show create form
+ *   - postNew()     - Store new resource
  *   - getShow($id)  - Show single resource
  *   - getEdit($id)  - Show edit form
- *   - putUpdate($id)    - Update resource
- *   - deleteDestroy($id) - Delete resource
+ *   - postEdit($id) - Update resource
+ *   - getDelete($id) - Delete resource
  *
  * Usage:
  *   php roline controller:create Posts
@@ -72,7 +72,7 @@ class ControllerCreate extends ControllerCommand
         Output::line();
 
         Output::info('Generated File:');
-        Output::line('  - RESTful controller with CRUD methods (getIndex, getCreate, postStore, etc.)');
+        Output::line('  - RESTful controller with CRUD methods (getIndex, getNew, postNew, etc.)');
         Output::line('  - HTTP method prefixes (get, post, put, delete, patch)');
         Output::line('  - View rendering examples');
         Output::line();

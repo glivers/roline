@@ -1134,7 +1134,7 @@ If you answer `y`, it prompts for method names interactively. If `n`:
 You can add methods later using: php roline controller:append Posts
 ```
 
-Generated controller includes RESTful CRUD methods: `getIndex()`, `getShow($id)`, `getCreate()`, `postCreate()`, `getEdit($id)`, `postUpdate($id)`, `getDelete($id)`. Each method demonstrates common patterns using `TodoModel` as a placeholder.
+Generated controller includes RESTful CRUD methods: `getIndex()`, `getNew()`, `postNew()`, `getShow($id)`, `getEdit($id)`, `postEdit($id)`, `getDelete($id)`. Each method demonstrates common patterns using `TodoModel` as a placeholder.
 
 ### controller:append
 

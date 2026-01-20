@@ -1,6 +1,6 @@
 @extends('{{ResourceName|lowercase}}/layout')
 
-@section('title', 'Create {{ResourceName}}')
+@section('title', 'New {{ResourceName}}')
 
 @section('content')
     <div class="page-header">
@@ -9,7 +9,7 @@
     </div>
 
     <div class="card">
-        <form method="POST" action="{{ Url::link('{{ResourceName|lowercase}}/create') }}" class="form">
+        <form method="POST" action="{{ Url::link('{{ResourceName|lowercase}}/new') }}" class="form">
             {{{ CSRF::field() }}}
 
             <div class="form-group">
