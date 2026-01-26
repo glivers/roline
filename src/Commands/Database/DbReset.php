@@ -51,6 +51,7 @@
  */
 
 use Rackage\Model;
+use Rackage\Registry;
 use Roline\Output;
 use Roline\Utils\SchemaReader;
 
