@@ -119,7 +119,7 @@ class DbExport extends DatabaseCommand
      */
     public function usage()
     {
-        return '<file|optional>';
+        return '<file|optional> [--schema]';
     }
 
     /**
@@ -136,16 +136,19 @@ class DbExport extends DatabaseCommand
 
         Output::info('Arguments:');
         Output::line('  <file|optional>  Output filename (auto-generates if not provided)');
+        Output::line('  --schema         Export schema only (no data)');
         Output::line();
 
         Output::info('Examples:');
         Output::line('  php roline db:export');
         Output::line('  php roline db:export database_backup.sql');
+        Output::line('  php roline db:export --schema');
+        Output::line('  php roline db:export schema.sql --schema');
         Output::line();
 
         Output::info('What it exports:');
         Output::line('  - CREATE TABLE statements for all tables');
-        Output::line('  - INSERT statements for all data');
+        Output::line('  - INSERT statements for all data (unless --schema used)');
         Output::line('  - Excludes migrations table by default');
         Output::line();
 
@@ -168,6 +171,14 @@ class DbExport extends DatabaseCommand
     public function execute($arguments)
     {
         try {
+            // Check for --schema flag
+            $schemaOnly = in_array('--schema', $arguments);
+
+            // Remove --schema flag from arguments to process filename
+            $arguments = array_values(array_filter($arguments, function($arg) {
+                return $arg !== '--schema';
+            }));
+
             // Get database name from configuration
             $dbConfig = Registry::database();
             $driver = $dbConfig['default'] ?? 'mysql';
@@ -241,7 +252,7 @@ class DbExport extends DatabaseCommand
                 $this->info("  → Exporting {$tableName}...");
 
                 // Stream table SQL directly to file (no memory accumulation)
-                $this->exportTable($tableName, $schemaReader, $fileHandle);
+                $this->exportTable($tableName, $schemaReader, $fileHandle, $schemaOnly);
                 fwrite($fileHandle, "\n");
             }
 
@@ -279,9 +290,10 @@ class DbExport extends DatabaseCommand
      * @param string $tableName Table name to export
      * @param SchemaReader $schemaReader Schema reader instance for querying
      * @param resource $fileHandle File handle to write to
+     * @param bool $schemaOnly If true, skip INSERT statements (structure only)
      * @return void
      */
-    private function exportTable($tableName, $schemaReader, $fileHandle)
+    private function exportTable($tableName, $schemaReader, $fileHandle, $schemaOnly = false)
     {
         // Write table header comment
         fwrite($fileHandle, "--\n");
@@ -298,8 +310,13 @@ class DbExport extends DatabaseCommand
         fwrite($fileHandle, $this->generateCreateTableSQL($tableName, $schema));
         fwrite($fileHandle, "\n\n");
 
-        // Stream INSERT statements for all table data directly to file (with progress)
-        $this->generateInsertStatementsSQL($tableName, $fileHandle);
+        // Stream INSERT statements for all table data directly to file (with progress) (unless schema-only mode)
+        if (!$schemaOnly) {
+            $this->generateInsertStatementsSQL($tableName, $fileHandle);
+        } else {
+            // Schema-only mode - write comment instead of data
+            fwrite($fileHandle, "-- Data export skipped (--schema mode)\n\n");
+        }
     }
 
     /**
