@@ -17,6 +17,9 @@ use Rackage\Model;
  */
 function up()
 {
+    // Disable foreign key checks to allow table creation in any order
+    Model::sql("SET FOREIGN_KEY_CHECKS=0");
+
     Model::begin();
 
     try {
@@ -27,6 +30,10 @@ function up()
     } catch (Exception $e) {
         Model::rollback();
         throw $e;
+
+    } finally {
+        // Re-enable foreign key checks (always runs, even after exception)
+        Model::sql("SET FOREIGN_KEY_CHECKS=1");
     }
 }
 
@@ -35,6 +42,9 @@ function up()
  */
 function down()
 {
+    // Disable foreign key checks to allow table deletion in any order
+    Model::sql("SET FOREIGN_KEY_CHECKS=0");
+
     Model::begin();
 
     try {
@@ -45,5 +55,9 @@ function down()
     } catch (Exception $e) {
         Model::rollback();
         throw $e;
+
+    } finally {
+        // Re-enable foreign key checks (always runs, even after exception)
+        Model::sql("SET FOREIGN_KEY_CHECKS=1");
     }
 }
