@@ -23,7 +23,7 @@
  *   - getAllTables()       - Lists all tables in database
  *
  * Configuration Access:
- *   - Reads from Registry::database() (loaded from config/database.php)
+ *   - Reads from Registry::dbConfig() (loaded from config/database.php)
  *   - Respects 'default' driver setting (mysql, postgresql, sqlite)
  *   - Provides fallback defaults if config missing
  *
@@ -71,7 +71,7 @@ abstract class DatabaseCommand extends Command
     protected function getDatabaseConfig()
     {
         // Load database configuration from Registry
-        $config = Registry::database();
+        $config = Registry::dbConfig();
 
         // Determine which driver is active (default to mysql)
         $default = $config['default'] ?? 'mysql';

@@ -70,7 +70,7 @@ class CleanupCache extends CleanupCommand
     public function execute($arguments)
     {
         // Load cache configuration from Registry
-        $cacheConfig = \Rackage\Registry::cache();
+        $cacheConfig = \Rackage\Registry::cacheConfig();
         $cacheEnabled = $cacheConfig['enabled'] ?? false;
         $cacheDriver = $cacheConfig['default'] ?? 'file';
         $driverConfig = $cacheConfig['drivers'][$cacheDriver] ?? [];

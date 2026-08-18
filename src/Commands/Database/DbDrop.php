@@ -132,7 +132,7 @@ class DbDrop extends DatabaseCommand
     {
         try {
             // Get database configuration
-            $dbConfig = Registry::database();
+            $dbConfig = Registry::dbConfig();
             $driver = $dbConfig['default'] ?? 'mysql';
             $config = $dbConfig[$driver] ?? [];
 

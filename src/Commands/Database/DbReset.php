@@ -120,7 +120,7 @@ class DbReset extends DatabaseCommand
     {
         try {
             // Get database name from configuration
-            $dbConfig = Registry::database();
+            $dbConfig = Registry::dbConfig();
             $driver = $dbConfig['default'] ?? 'mysql';
             $databaseName = $dbConfig[$driver]['database'] ?? 'database';
 

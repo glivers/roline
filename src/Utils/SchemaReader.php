@@ -29,7 +29,7 @@ class SchemaReader
      */
     public function __construct()
     {
-        $dbConfig = Registry::database();
+        $dbConfig = Registry::dbConfig();
         $driver = $dbConfig['default'] ?? 'mysql';
         $this->database = $dbConfig[$driver]['database'] ?? '';
     }
