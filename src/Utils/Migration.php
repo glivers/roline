@@ -28,7 +28,7 @@ class Migration
      */
     public function __construct()
     {
-        $dbConfig = Registry::database();
+        $dbConfig = Registry::dbConfig();
         $this->table = $dbConfig['migrations_table'] ?? 'migrations';
     }
 
